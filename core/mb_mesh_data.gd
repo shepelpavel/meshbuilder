@@ -782,10 +782,6 @@ func _fill_compacted_arrays(arrays: Array, map: PackedInt32Array, normals: Packe
 ## Cached default material reference.
 static var _cached_default_material: Material = null
 
-## Clears the cached default material reference so it re-reads from settings.
-static func invalidate_default_material() -> void:
-	_cached_default_material = null
-
 ## Returns the default MeshBuilder material (from EditorSettings, or the bundled checkerboard fallback).
 static func get_default_material() -> Material:
 	if _cached_default_material != null:
@@ -908,6 +904,29 @@ func set_faces_material(target_faces: Array, mat: Material) -> void:
 			f.submesh_index = idx
 
 	invalidate_caches()
+
+## Drops the material slot at `slot` from the mesh. Faces on that slot fall back
+## to slot 0 (or the default material when nothing is left), faces on later
+## slots move down with it, so submesh indices stay contiguous.
+func remove_material_slot(slot: int) -> bool:
+	if slot < 0 or slot >= materials.size():
+		return false
+	materials.remove_at(slot)
+
+	var last := materials.size()
+	for f in faces:
+		if f == null:
+			continue
+		if f.submesh_index == slot:
+			f.submesh_index = 0
+		elif f.submesh_index > slot:
+			f.submesh_index -= 1
+		if f.submesh_index >= last:
+			f.submesh_index = 0
+
+	invalidate_caches()
+	return true
+
 # ==============================================================================
 # Utility: Clear
 # ==============================================================================

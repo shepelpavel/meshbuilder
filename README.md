@@ -27,7 +27,7 @@ between modes. Operations: extrude, inset, multi-segment bevel, loop cut, knife,
 weld, bridge, connect, collapse, fill hole, detach, delete. Everything with live previews and full
 undo.
 
-**Materials and UV.** Project material palette with per-face assignment and a default material for
+**Materials and UV.** Per-mesh material palette (each mesh keeps its own list) with per-face assignment and a default material for
 new shapes. A dedicated 2D UV editor with UV1 and UV2 channels, box unwrap, LightmapGI unwrap,
 island selection and snapping — plus a per-face row (tiling, offset, rotation, flips, vertex-colour
 tint).
@@ -45,7 +45,7 @@ Copy the `addons/meshbuilder` folder into your project and enable **MeshBuilder*
 `Project → Project Settings → Plugins`.
 
 The UI lives in the editor's **bottom panel** as three tabs — *MeshBuilder* (toolbar),
-*Materials* (project material palette) and *UV Editor* (2D unwrapping and per-face UV/tint) — so the
+*Materials* (material palette of the selected mesh) and *UV Editor* (2D unwrapping and per-face UV/tint) — so the
 plugin takes neither rows from the 3D viewport nor the right-hand dock column.
 
 ### No file export
@@ -82,7 +82,7 @@ same code is called `pb_*` / `PB*` there.
 режимами. Операции: extrude, inset, bevel (мультисегментный), loop cut, нож, subdivide, merge, weld,
 bridge, connect, collapse, fill hole, detach, delete. Всё с превью и полноценным undo.
 
-**Материалы и UV.** Палитра материалов проекта с назначением на грани и материалом по умолчанию для
+**Материалы и UV.** Палитра материалов меша (у каждого свой список) с назначением на грани и материалом по умолчанию для
 новых фигур. Отдельный 2D UV-редактор: каналы UV1 и UV2, box-unwrap, развёртка для LightmapGI,
 острова, снап — плюс строка «Face:» для граней (тайлинг, офсет, угол, флипы, тинт вершинным цветом).
 
@@ -110,7 +110,7 @@ rsync -a --delete \
 Включить в `Проект → Настройки проекта → Плагины → MeshBuilder`.
 
 Всё живёт в **нижней панели** отдельными вкладками — «MeshBuilder» (тулбар), «Material & UV»
-(палитра материалов) и «UV Editor» (2D-развёртка и построчная правка UV/тинта): так плагин не отъедает ни строки у
+(палитра материалов выделенного меша) и «UV Editor» (2D-развёртка и построчная правка UV/тинта): так плагин не отъедает ни строки у
 3D-вьюпорта, ни правую колонку доков.
 
 ### Экспорта в файл нет

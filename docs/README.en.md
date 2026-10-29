@@ -1,7 +1,7 @@
 # MeshBuilder — prop modeling inside Godot
 
 MeshBuilder turns the editor's 3D viewport into a modeling tool: drag-to-create primitives,
-vertex/edge/face editing, mesh operations, a UV editor and a project material palette. No Blender,
+vertex/edge/face editing, mesh operations, a UV editor and a per-mesh material palette. No Blender,
 no export/import round-trip, no leaving the editor.
 
 The plugin is a fork of **PoiBuilder** (MIT) stripped down to prop modeling: texture splatting and face
@@ -95,13 +95,22 @@ beveled at all.
 
 ## Materials
 
-The **Materials** tab is the project palette: cards for materials and textures scanned from `res://`,
-`+ Add` for a file from disk, `↺` to rescan.
+The **Materials** tab is the palette of the **selected mesh**. Its cards are that mesh's own materials
+(its `materials` slots): every mesh keeps its own set, the project is not scanned and nothing is pulled
+in automatically.
 
-- click a card — apply the material to the selected faces (in Object mode — to the whole model);
-- right click — **Set as Default** (material for new shapes, marked ★), **Apply to Selection**,
-  **Copy Path**;
+- `+ Add` — add a material to the current mesh: `.tres` / `.material` is taken as is, a texture
+  (`.png` / `.jpg` / `.webp`) is wrapped into a `StandardMaterial3D` with transparency read from the
+  image. Adding is a single undo step; the same file is never added twice (the status line says so);
+- click a card — apply the material to the selected faces (in Object mode — to every face of the mesh);
+- right click — **Apply to Selection**, **Remove from Mesh** (drops the material's slot from the mesh;
+  faces on it fall back to the first slot, all in one undo step), **Copy Path**;
+- `↺` — re-read the material list from the mesh (the palette also switches on its own when another mesh
+  is selected);
 - dragging a card onto an object in the viewport assigns it as well.
+
+New shapes start with the default material (`materials/mb_default_material.tres`) as their first slot;
+after that each mesh carries its own set.
 
 ## UV editor
 

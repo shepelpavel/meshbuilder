@@ -72,6 +72,11 @@ func _drop_data(at_position: Vector2, data: Variant) -> void:
 		mesh.rebuild()
 		mesh.update_gizmos()
 
+	# The drop may have added a slot to the mesh — the palette follows it.
+	var dock = plugin.get("material_dock") if plugin != null else null
+	if dock != null and dock.has_method("refresh_materials"):
+		dock.refresh_materials()
+
 # ==============================================================================
 # Helper Methods
 # ==============================================================================
@@ -86,12 +91,22 @@ func _is_material_data(data: Variant) -> bool:
 			return true
 		if data.get("type") == "files" and data.has("files"):
 			for f in data["files"]:
-				var ext := String(f).get_extension().to_lower()
-				if ext == "tres" or ext == "material" or ext == "res":
-					var res = ResourceLoader.load(f)
-					if res is Material:
-						return true
+				if _load_material_file(String(f)) != null:
+					return true
 	return false
+
+## Material from a dropped file: `.tres`/`.material`/`.res` as is, an image
+## wrapped into a StandardMaterial3D.
+func _load_material_file(path: String) -> Material:
+	var ext := path.get_extension().to_lower()
+	if ext in ["tres", "material", "res"]:
+		var res = ResourceLoader.load(path)
+		return res if res is Material else null
+	if ext in ["png", "jpg", "jpeg", "webp"]:
+		var tex = ResourceLoader.load(path)
+		if tex is Texture2D:
+			return MBMeshData.load_material_or_texture(path)
+	return null
 
 func _resolve_material(data: Variant) -> Material:
 	if data is Material:
@@ -101,11 +116,9 @@ func _resolve_material(data: Variant) -> Material:
 			return data["material"]
 		if data.get("type") == "files" and data.has("files"):
 			for f in data["files"]:
-				var ext := String(f).get_extension().to_lower()
-				if ext == "tres" or ext == "material" or ext == "res":
-					var res = ResourceLoader.load(f)
-					if res is Material:
-						return res
+				var mat := _load_material_file(String(f))
+				if mat != null:
+					return mat
 	return null
 
 func _pick_pbmesh_face(screen_pos: Vector2) -> Dictionary:
