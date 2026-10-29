@@ -19,7 +19,7 @@
 ## - Panel toggle: pins the overlay panel on/off (it otherwise auto-hides).
 @tool
 class_name MBToolbar
-extends HFlowContainer
+extends VBoxContainer
 # ==============================================================================
 # Signals
 # ==============================================================================
@@ -97,7 +97,6 @@ var _btn_new_shape: MenuButton
 var _btn_ngon: Button
 var _btn_edit_params: Button
 var _btn_trim_walls: Button
-var _sep_row4_tools: Control
 var _btn_overlay: Button
 var _btn_recover_overlay: Button
 var _btn_materials: Button
@@ -109,18 +108,7 @@ var _btn_grid_panel: Button
 var _lbl_grid_state: Label
 var _btn_obj_lit: Button
 var _btn_obj_shadow: Button
-var _sep_row3_state: VSeparator
 
-var _sep_modes: VSeparator
-var _sep_space: VSeparator
-var _sep_grid: VSeparator
-var _sep_ops: VSeparator
-var _sep_shapes: VSeparator
-var _sep_overlay: VSeparator
-var _sep_docks: VSeparator
-var _sep_row3_obj: VSeparator
-var _sep_row3_csg: VSeparator
-var _sep_row3_smooth: VSeparator
 var _tool_group: ButtonGroup = ButtonGroup.new()
 var _mode_group: ButtonGroup = ButtonGroup.new()
 
@@ -134,8 +122,7 @@ var editor: MBEditor = null:
 func _init() -> void:
 	name = "MBToolbar"
 	size_flags_horizontal = Control.SIZE_EXPAND | Control.SIZE_FILL
-	add_theme_constant_override("h_separation", 4)
-	add_theme_constant_override("v_separation", 2)
+	add_theme_constant_override("separation", 2)
 	_build_ui()
 
 func _build_ui() -> void:
@@ -146,7 +133,6 @@ func _build_ui() -> void:
 	_btn_scale.tooltip_text = "Scale tool (R) — axis handles scale freely; the CENTER square scales all axes together (Shift + center on faces insets)"
 
 	# Selection modes group
-	_sep_modes = _make_sep()
 	_btn_object = _create_mode_button("Object", MBEditor.SelectMode.OBJECT, "icon_object.svg")
 	_btn_vertex = _create_mode_button("Vertex", MBEditor.SelectMode.VERTEX, "icon_vertex.svg")
 	_btn_edge = _create_mode_button("Edge", MBEditor.SelectMode.EDGE, "icon_edge.svg")
@@ -155,7 +141,6 @@ func _build_ui() -> void:
 	_btn_texture.tooltip_text = "Texture / Material Mode (6) — transform UVs directly on 3D geometry"
 
 	# Orientation space
-	_sep_space = _make_sep()
 	_btn_space = Button.new()
 	_btn_space.name = "SpaceButton"
 	_btn_space.icon = _load_icon("icon_space.svg")
@@ -165,7 +150,6 @@ func _build_ui() -> void:
 	_btn_space.pressed.connect(_on_space_button_pressed)
 
 	# Grid settings & readout
-	_sep_grid = _make_sep()
 	_btn_grid_panel = Button.new()
 	_btn_grid_panel.name = "GridPanelToggle"
 	_btn_grid_panel.icon = _load_icon("icon_grid.svg")
@@ -211,7 +195,6 @@ func _build_ui() -> void:
 	_spin_prop_radius.tooltip_text = "Proportional Influence Radius (m)"
 	_spin_prop_radius.value_changed.connect(func(val: float): proportional_radius_changed.emit(val))
 	# Operations group
-	_sep_ops = _make_sep()
 	_make_op_button("Extrude", "extrude_faces", "Extrude selected faces/edges along their normal (Shift+Move does this live)", "icon_extrude.svg")
 	_make_op_button("Inset", "inset_faces", "Inset selected faces (Shift+Scale does this live)", "icon_inset.svg")
 	_make_op_button("Bevel", "bevel_edges", "Bevel selected edges or faces (Chamfer or fillet rounding)", "icon_bevel.svg")
@@ -239,7 +222,6 @@ func _build_ui() -> void:
 	_make_op_button("Loop", "select_face_loop", "Select quad strip face loop", "icon_face_loop.svg")
 	_make_op_button("Ring", "select_face_ring", "Select perpendicular quad face ring", "icon_face_ring.svg")
 
-	_sep_row3_obj = _make_sep()
 	_make_op_button("Merge Objs", "merge_objects", "Merge selected MBMesh nodes into one", "icon_merge_objects.svg")
 	_make_op_button("Mirror", "mirror_object", "Mirror object geometry across X", "icon_mirror.svg")
 	_make_op_button("Center Pivot", "center_pivot", "Center pivot to bounding box", "icon_center_pivot.svg")
@@ -247,17 +229,13 @@ func _build_ui() -> void:
 	var p_btn := _make_op_button("MeshBuilderize", "meshbuilderize", "Convert selected MeshInstance3D or CSG to editable MBMesh", "icon_meshbuilderize.svg")
 	_op_buttons["probuilderize"] = p_btn
 
-	_sep_row3_csg = _make_sep()
 	_make_op_button("CSG Union", "csg_union", "CSG: Solid union of the selected meshes (select target first, cutter last)", "icon_csg_union.svg")
 	_make_op_button("CSG Subtract", "csg_subtract", "CSG: Subtract the LAST-selected mesh from the FIRST-selected mesh", "icon_csg_subtract.svg")
 	_make_op_button("CSG Intersect", "csg_intersect", "CSG: Solid intersection of the selected meshes (select target first, cutter last)", "icon_csg_intersect.svg")
 
-	_sep_row3_smooth = _make_sep()
-	_sep_row4_tools = _make_sep()
 	_make_op_button("Auto Smooth", "smooth_auto", "Auto-smooth faces by dihedral angle (45 deg)", "icon_auto_smooth.svg")
 
 	# Object state toggles (row 3): Lit + Cast Shadows for the scene selection.
-	_sep_row3_state = _make_sep()
 	_btn_obj_lit = Button.new()
 	_btn_obj_lit.name = "ObjectLitToggle"
 	_btn_obj_lit.icon = _load_icon("icon_lit.svg")
@@ -282,7 +260,6 @@ func _build_ui() -> void:
 	_btn_obj_shadow.tooltip_text = "Cast Shadows: shadow casting on/off for the selected objects. All casting = checked, none = unchecked, mixed = unchecked (checking synchronizes every selected object)."
 	_btn_obj_shadow.toggled.connect(func(on: bool): object_shadow_toggled.emit(on))
 	# Shapes group
-	_sep_shapes = _make_sep()
 	_btn_new_shape = MenuButton.new()
 	_btn_new_shape.name = "NewShape"
 	_btn_new_shape.icon = _load_icon("icon_new_shape.svg")
@@ -325,7 +302,6 @@ func _build_ui() -> void:
 	_btn_trim_walls.pressed.connect(func(): trim_walls_requested.emit())
 
 	# Overlay panel group
-	_sep_overlay = _make_sep()
 	_btn_overlay = Button.new()
 	_btn_overlay.name = "OverlayToggle"
 	_btn_overlay.icon = _load_icon("icon_panel.svg")
@@ -347,7 +323,6 @@ func _build_ui() -> void:
 	_btn_recover_overlay.pressed.connect(func(): reset_panel_requested.emit())
 
 	# Docks & settings group
-	_sep_docks = _make_sep()
 	_btn_materials = Button.new()
 	_btn_materials.name = "MaterialsButton"
 	_btn_materials.icon = _load_icon("icon_materials.svg")
@@ -401,64 +376,65 @@ func _update_row_layout() -> void:
 	for c in get_children():
 		remove_child(c)
 
-	var grp_tools: Array[Control] = [_btn_move, _btn_rotate, _btn_scale]
-	var grp_ops: Array[Control] = [
-		_sep_ops,
-		_op_buttons["extrude_faces"], _op_buttons["inset_faces"], _op_buttons["bevel_edges"],
-		_op_buttons["bridge_edges"], _op_buttons["connect_edges"], _op_buttons["collapse_elements"], _op_buttons["fill_hole"],
-		_op_buttons["knife_tool"], _op_buttons["insert_edge_loop"],
-		_op_buttons["merge_faces"], _op_buttons["subdivide_faces"],
-		_op_buttons["weld_vertices"], _op_buttons["detach_faces"],
-		_op_buttons["delete_faces"]
-	]
-	var grp_space: Array[Control] = [_sep_space, _btn_space]
-	var grp_shapes: Array[Control] = [_sep_shapes, _btn_new_shape, _btn_ngon, _btn_edit_params]
-	var grp_docks: Array[Control] = [
-		_sep_docks, _btn_materials, _btn_uv_editor, _btn_overlay, _btn_recover_overlay,
-		_btn_settings
-	]
-	var grp_grid: Array[Control] = [_sep_grid, _btn_grid_panel, _lbl_grid_state]
-	var grp_sel: Array[Control] = [
-		_op_buttons["select_all"], _op_buttons["invert_selection"], _op_buttons["grow_selection"],
-		_op_buttons["shrink_selection"], _op_buttons["select_coplanar"], _op_buttons["select_similar"],
-		_op_buttons["select_boundary"], _op_buttons["select_face_loop"], _op_buttons["select_face_ring"],
-		_sep_row3_smooth, _op_buttons["smooth_auto"]
-	]
-	var grp_state: Array[Control] = [_sep_row3_state, _btn_obj_lit, _btn_obj_shadow]
-	var grp_snap: Array[Control] = [_btn_vertex_snap, _btn_proportional, _spin_prop_radius]
-	var grp_obj: Array[Control] = [
-		_sep_row3_obj,
-		_op_buttons["merge_objects"], _op_buttons["mirror_object"], _op_buttons["center_pivot"],
-		_op_buttons["freeze_transform"], _op_buttons["meshbuilderize"]
-	]
-	var grp_csg: Array[Control] = [
-		_sep_row3_csg,
-		_op_buttons["csg_union"], _op_buttons["csg_subtract"], _op_buttons["csg_intersect"]
-	]
-	var grp_extra: Array[Control] = [_sep_row4_tools, _btn_trim_walls]
+	_add_row([
+		[_btn_object, _btn_vertex, _btn_edge, _btn_face, _btn_texture],
+		[_btn_move, _btn_rotate, _btn_scale],
+		[_btn_space],
+	])
+	_add_row([
+		[
+			_op_buttons["extrude_faces"], _op_buttons["inset_faces"], _op_buttons["bevel_edges"],
+			_op_buttons["subdivide_faces"], _op_buttons["merge_faces"], _op_buttons["delete_faces"],
+		],
+		[
+			_op_buttons["knife_tool"], _op_buttons["insert_edge_loop"], _op_buttons["connect_edges"],
+			_op_buttons["bridge_edges"], _op_buttons["collapse_elements"], _op_buttons["fill_hole"],
+			_op_buttons["weld_vertices"], _op_buttons["detach_faces"],
+		],
+	])
+	_add_row([
+		[
+			_op_buttons["select_all"], _op_buttons["invert_selection"], _op_buttons["grow_selection"],
+			_op_buttons["shrink_selection"], _op_buttons["select_coplanar"], _op_buttons["select_similar"],
+			_op_buttons["select_boundary"], _op_buttons["select_face_loop"], _op_buttons["select_face_ring"],
+		],
+		[_op_buttons["smooth_auto"]],
+	])
+	_add_row([
+		[_btn_vertex_snap, _btn_proportional, _spin_prop_radius],
+		[_btn_grid_panel, _lbl_grid_state],
+		[_btn_obj_lit, _btn_obj_shadow],
+	])
+	_add_row([
+		[_btn_new_shape, _btn_ngon, _btn_edit_params],
+		[
+			_op_buttons["merge_objects"], _op_buttons["mirror_object"], _op_buttons["center_pivot"],
+			_op_buttons["freeze_transform"], _op_buttons["meshbuilderize"],
+		],
+		[_op_buttons["csg_union"], _op_buttons["csg_subtract"], _op_buttons["csg_intersect"]],
+		[_btn_trim_walls],
+		[_btn_materials, _btn_uv_editor, _btn_overlay, _btn_recover_overlay, _btn_settings],
+		[_btn_env],
+	])
 
-	for c in grp_tools: add_child(c)
-	for c in grp_ops: add_child(c)
-	add_child(_btn_env)
-	add_child(_btn_object)
-	add_child(_btn_vertex)
-	add_child(_btn_edge)
-	add_child(_btn_face)
-	add_child(_btn_texture)
-	for c in grp_space: add_child(c)
-	for c in grp_shapes: add_child(c)
-	for c in grp_docks: add_child(c)
-	for c in grp_grid: add_child(c)
-	for c in grp_sel: add_child(c)
-	for c in grp_state: add_child(c)
-	for c in grp_snap: add_child(c)
-	for c in grp_obj: add_child(c)
-	for c in grp_csg: add_child(c)
-	for c in grp_extra: add_child(c)
+func _add_row(groups: Array) -> void:
+	var row := HFlowContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND | Control.SIZE_FILL
+	row.add_theme_constant_override("h_separation", 4)
+	row.add_theme_constant_override("v_separation", 2)
+	add_child(row)
+	for i in groups.size():
+		if i > 0:
+			row.add_child(_make_sep())
+		for c in groups[i]:
+			row.add_child(c)
 
 ## Total number of controls and buttons on the toolbar.
 func get_item_count() -> int:
-	return get_child_count()
+	var total := 0
+	for row in get_children():
+		total += row.get_child_count()
+	return total
 
 static func _load_icon(icon_name: String) -> Texture2D:
 	var path := ICON_DIR + icon_name
