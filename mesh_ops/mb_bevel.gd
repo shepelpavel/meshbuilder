@@ -79,6 +79,18 @@ static func bevel_edges(mesh_data: MBMeshData, edge_ids: PackedInt32Array,
 
 	segments = clampi(segments, 1, 8)
 
+	# A face that carries a cut-out is stored as ONE spliced polygon walking the
+	# seam corner twice, which a face-loop bevel cannot reason about. Split just
+	# those faces into triangles first (the hole stays a hole — only the topology
+	# inside the patch changes) and the bevel sees simple loops everywhere.
+	var tracked := _edge_endpoints(mesh_data, edge_ids)
+	if _heal_spliced_faces(mesh_data, edge_ids) > 0:
+		mesh_data.invalidate_caches()
+		mesh_data.ensure_welds()
+		edge_ids = _resolve_edge_ids(mesh_data, tracked)
+		if edge_ids.is_empty():
+			return _fail("Bevel edges: the selection was lost while splitting a face with a cut-out")
+
 	var lookup := mesh_data.get_shared_vertex_lookup()
 	var common_edges := mesh_data.get_common_edges()
 
@@ -226,6 +238,129 @@ static func bevel_edges(mesh_data: MBMeshData, edge_ids: PackedInt32Array,
 	return outcome
 
 
+## Position pairs of the selected common edges: the ids change when the heal
+## below re-creates faces, the coordinates do not.
+static func _edge_endpoints(mesh_data: MBMeshData, edge_ids: PackedInt32Array) -> Array:
+	var out: Array = []
+	var common_edges := mesh_data.get_common_edges()
+	for eid in edge_ids:
+		if eid >= 0 and eid < common_edges.size():
+			var e: MBEdge = common_edges[eid]
+			out.append([mesh_data.positions[e.a], mesh_data.positions[e.b]])
+	return out
+
+static func _resolve_edge_ids(mesh_data: MBMeshData, endpoints: Array) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var common_edges := mesh_data.get_common_edges()
+	for pair in endpoints:
+		var pa: Vector3 = pair[0]
+		var pb: Vector3 = pair[1]
+		var best := -1
+		var best_d := 0.001
+		for eid in common_edges.size():
+			var e: MBEdge = common_edges[eid]
+			var qa: Vector3 = mesh_data.positions[e.a]
+			var qb: Vector3 = mesh_data.positions[e.b]
+			var d := maxf(minf(qa.distance_to(pa), qa.distance_to(pb)),
+					minf(qb.distance_to(pa), qb.distance_to(pb)))
+			if d < best_d:
+				best_d = d
+				best = eid
+		if best >= 0 and not out.has(best):
+			out.append(best)
+	return out
+
+## Replaces every selected-adjacent face whose boundary visits a welded corner
+## twice with its own triangulation. Returns how many faces were split.
+static func _heal_spliced_faces(mesh_data: MBMeshData, edge_ids: PackedInt32Array) -> int:
+	var lookup := mesh_data.get_shared_vertex_lookup()
+	var common_edges := mesh_data.get_common_edges()
+	var sel := {}
+	for eid in edge_ids:
+		if eid >= 0 and eid < common_edges.size():
+			var e: MBEdge = common_edges[eid]
+			sel[_key(lookup, e.a, e.b)] = true
+	if sel.is_empty():
+		return 0
+	var targets := PackedInt32Array()
+	for fi in range(mesh_data.faces.size()):
+		var face: MBFace = mesh_data.faces[fi]
+		if face == null:
+			continue
+		var loop := MBMeshOps._ordered_loop(face)
+		var n := loop.size()
+		if n < 3:
+			continue
+		var seen := {}
+		var repeated := false
+		for vi in loop:
+			var vrep: int = int(lookup.get(vi, vi))
+			if seen.has(vrep):
+				repeated = true
+				break
+			seen[vrep] = true
+		if not repeated:
+			continue
+		for i in range(n):
+			if sel.has(_key(lookup, loop[i], loop[(i + 1) % n])):
+				targets.append(fi)
+				break
+	# Descending: replacing a face splices new ones in at its own index.
+	for k in range(targets.size() - 1, -1, -1):
+		if not _triangulate_spliced_face(mesh_data, targets[k]):
+			return 0
+	return targets.size()
+
+static func _triangulate_spliced_face(mesh_data: MBMeshData, fi: int) -> bool:
+	if fi < 0 or fi >= mesh_data.faces.size():
+		return false
+	var face: MBFace = mesh_data.faces[fi]
+	var loop := MBMeshOps._ordered_loop(face)
+	if loop.size() < 3:
+		return false
+	var normal := MBMeshOps._face_area_normal(mesh_data, face).normalized()
+	if normal.length_squared() < 0.0001:
+		return false
+	var up := Vector3.UP if absf(normal.dot(Vector3.UP)) < 0.9 else Vector3.RIGHT
+	var u_axis := normal.cross(up).normalized()
+	var v_axis := normal.cross(u_axis).normalized()
+	var origin: Vector3 = mesh_data.positions[loop[0]]
+	var poly := PackedVector2Array()
+	for idx in loop:
+		var d: Vector3 = mesh_data.positions[idx] - origin
+		poly.append(Vector2(d.dot(u_axis), d.dot(v_axis)))
+	if MBMeshOps._polygon_area_2d(poly) < 0.0:
+		poly.reverse()
+	var tris := MBShapeComplex._triangulate_2d(poly)
+	if tris.is_empty():
+		return false
+	var base := mesh_data.positions.size()
+	for p in poly:
+		mesh_data.positions.append(origin + u_axis * p.x + v_axis * p.y)
+		mesh_data.textures0.append(Vector2(p.x, p.y))
+		if not mesh_data.colors.is_empty():
+			mesh_data.colors.append(Color.WHITE)
+	var made: Array[MBFace] = []
+	for t in tris:
+		var a := base + int(t[0])
+		var b := base + int(t[1])
+		var c := base + int(t[2])
+		if absf((poly[t[1]] - poly[t[0]]).cross(poly[t[2]] - poly[t[0]])) < 0.00001:
+			continue
+		var nf := MBFace.new(PackedInt32Array([a, b, c]))
+		nf.submesh_index = face.submesh_index
+		nf.manual_uv = true
+		nf.element_group = face.element_group
+		nf.texture_group = face.texture_group
+		made.append(nf)
+	if made.is_empty():
+		return false
+	mesh_data.faces.remove_at(fi)
+	for k in range(made.size()):
+		mesh_data.faces.insert(fi + k, made[k])
+	mesh_data.invalidate_caches()
+	return true
+
 ## Point table: label -> Vector3, every record created exactly once. Each face
 ## that uses a record gets its own position COPY (position privacy), and the
 ## weld rebuild reconnects the coincident copies into shared groups.
@@ -261,7 +396,13 @@ static func _bevel_build(mesh_data: MBMeshData, lookup: Dictionary, valid: Dicti
 			var vi: int = loop[i]
 			var vrep: int = int(lookup.get(vi, vi))
 			if co.has(vrep):
-				return _fail("Bevel edges: a face touches the same corner twice (a knife cut's splice slit can fold a face boundary onto itself) — the bevel cannot run through a self-touching face")
+				# A cut face that carries a hole is stored as ONE spliced polygon
+				# that walks the seam corner twice. That is harmless while the
+				# corner has no beveled edge (no wedge is ever built there), so
+				# only a doubled corner ON the bevel is genuinely ambiguous.
+				if bev_at.has(vrep):
+					return _fail("Bevel edges: the bevel runs into the seam of a face with a cut-out")
+				continue
 			co[vrep] = i
 			if not bev_at.has(vrep):
 				continue
@@ -535,12 +676,19 @@ static func _bevel_build(mesh_data: MBMeshData, lookup: Dictionary, valid: Dicti
 				continue
 		# Small/planar caps ear-clip; big curved caps (S > 1 real corners) fan
 		# from their centroid — one symmetric patch instead of arbitrary
-		# chords that dish into the corner.
-		var cap: MBFace
-		if ring.size() >= 5:
-			cap = _fan_cap(mesh_data, cap_loop, outward.normalized(), mesh_data.faces[cap_fi])
-		else:
-			cap = _face_from_indices(mesh_data, cap_loop, mesh_data.faces[cap_fi], outward.normalized())
+		# chords that dish into the corner. A cap with FOUR OR MORE ring points
+		# (a beveled edge with 3+ segments) is fanned into separate triangles:
+		# one flat n-gon at the strip's end shades badly and refuses further
+		# edge operations, so the fan is kept, the n-gon is not.
+		if ring.size() >= 4:
+			var fan := _fan_cap_triangles(mesh_data, cap_loop, outward.normalized(), mesh_data.faces[cap_fi])
+			if fan.is_empty():
+				return _fail("Bevel edges: the corner cap at %s collapsed"
+					% str(mesh_data.positions[int(rep_index.get(c, 0))]))
+			for f in fan:
+				secondary.append(f)
+			continue
+		var cap := _face_from_indices(mesh_data, cap_loop, mesh_data.faces[cap_fi], outward.normalized())
 		if cap == null:
 			if OS.get_environment("MB_BEVEL_TRACE") != "":
 				var dump3 := PackedStringArray()
@@ -1109,6 +1257,53 @@ static func _face_from_indices(mesh_data: MBMeshData, loop_idx: PackedInt32Array
 ## position and the ring triangulates around it (its perimeter stays the ring,
 ## since interior fan edges cancel in MBFace.get_edges). Returns null when the
 ## ring is degenerate.
+## Centroid fan of the ring, emitted as SEPARATE triangle faces (the geometry
+## of _fan_cap, the topology of proper triangles). Template face attributes and
+## winding are carried over from the face the cap belongs to.
+static func _fan_cap_triangles(mesh_data: MBMeshData, loop_idx: PackedInt32Array,
+		outward: Vector3, template: MBFace) -> Array[MBFace]:
+	var out: Array[MBFace] = []
+	var clean := PackedInt32Array()
+	for i in range(loop_idx.size()):
+		if clean.size() > 0:
+			if loop_idx[i] == clean[clean.size() - 1]:
+				continue
+			if mesh_data.positions[loop_idx[i]].distance_squared_to(mesh_data.positions[clean[clean.size() - 1]]) < 0.000000000001:
+				continue
+		clean.append(loop_idx[i])
+	while clean.size() > 1 and (clean[0] == clean[clean.size() - 1]
+			or mesh_data.positions[clean[0]].distance_squared_to(mesh_data.positions[clean[clean.size() - 1]]) < 0.000000000001):
+		clean.remove_at(clean.size() - 1)
+	if clean.size() < 3:
+		return out
+	var ring_normal := _newell_normal(mesh_data, clean)
+	if ring_normal.length_squared() < 0.000000000001:
+		return out
+	if ring_normal.dot(outward) < 0.0:
+		clean.reverse()
+	var centroid := MBMath.average(mesh_data.positions, clean)
+	var centre_idx := MBMeshOps._dup_position_at(mesh_data, centroid, clean[0])
+	for i in range(clean.size()):
+		var a: int = clean[i]
+		var b: int = clean[(i + 1) % clean.size()]
+		if a == b:
+			continue
+		if (mesh_data.positions[a] - mesh_data.positions[centre_idx]).cross(
+				mesh_data.positions[b] - mesh_data.positions[centre_idx]).length_squared() < 0.000000000001:
+			continue
+		var tri := MBFace.new(PackedInt32Array([centre_idx, a, b]))
+		if template != null:
+			tri.submesh_index = template.submesh_index
+			tri.uv_scale = template.uv_scale
+			tri.uv_offset = template.uv_offset
+			tri.uv_rotation = template.uv_rotation
+			tri.uv_use_world_space = template.uv_use_world_space
+			tri.uv_flip_u = template.uv_flip_u
+			tri.uv_flip_v = template.uv_flip_v
+			tri.uv_swap_uv = template.uv_swap_uv
+		out.append(tri)
+	return out
+
 static func _fan_cap(mesh_data: MBMeshData, loop_idx: PackedInt32Array,
 		outward: Vector3, template: MBFace) -> MBFace:
 	var clean := PackedInt32Array()

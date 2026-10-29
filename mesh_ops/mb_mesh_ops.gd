@@ -469,16 +469,64 @@ static func bevel_vertices(mesh_data: MBMeshData, vertex_ids: PackedInt32Array, 
 		if sv == null or sv.indices.is_empty():
 			continue
 		targets.append(mesh_data.positions[sv.indices[0]])
+	# A corner on an open border has no surface to fold around: cutting it
+	# leaves a hole at the rim. Count the faces per edge ONCE and skip such
+	# vertices instead of tearing the mesh (a beveled stair corner used to
+	# leave an open edge).
 	var beveled := 0
+	var on_border := 0
 	for target in targets:
 		var sv := _group_at_position(mesh_data, target)
 		if sv == null:
 			continue
+		# Counts are re-read per vertex: every bevel rebuilds the topology, so
+		# a table taken before the loop reports the cut edges as "not shared".
+		if _vertex_on_open_border(mesh_data, sv, _edge_face_counts(mesh_data)):
+			on_border += 1
+			continue
 		if _bevel_one_vertex(mesh_data, sv, amount):
 			beveled += 1
 	if beveled == 0:
+		if on_border > 0:
+			return _fail("Bevel vertices: the selected vertex sits on an open border (no surface around it to bevel)")
 		return _fail("Bevel vertices: nothing to bevel")
 	return {"ok": true, "new_face_ids": PackedInt32Array(), "beveled_vertices": beveled}
+
+static func _edge_face_counts(mesh_data: MBMeshData) -> Dictionary:
+	var lookup := mesh_data.get_shared_vertex_lookup()
+	var counts := {}
+	for face in mesh_data.faces:
+		if face == null:
+			continue
+		var outline := face.get_outline_indexes()
+		for k in outline.size():
+			var a: int = int(lookup.get(outline[k], outline[k]))
+			var b: int = int(lookup.get(outline[(k + 1) % outline.size()], outline[(k + 1) % outline.size()]))
+			var key := Vector2i(mini(a, b), maxi(a, b))
+			counts[key] = int(counts.get(key, 0)) + 1
+	return counts
+
+static func _vertex_on_open_border(mesh_data: MBMeshData, sv: MBSharedVertex, counts: Dictionary) -> bool:
+	var lookup := mesh_data.get_shared_vertex_lookup()
+	var mine := {}
+	for idx in sv.indices:
+		mine[int(lookup.get(idx, idx))] = true
+	for face in mesh_data.faces:
+		if face == null:
+			continue
+		var outline := face.get_outline_indexes()
+		var n := outline.size()
+		for i in n:
+			var a: int = int(lookup.get(outline[i], outline[i]))
+			if not mine.has(a):
+				continue
+			var b: int = int(lookup.get(outline[(i + 1) % n], outline[(i + 1) % n]))
+			var c: int = int(lookup.get(outline[(i - 1 + n) % n], outline[(i - 1 + n) % n]))
+			for other in [b, c]:
+				var key := Vector2i(mini(a, other), maxi(a, other))
+				if int(counts.get(key, 0)) != 2:
+					return true
+	return false
 
 static func _group_at_position(mesh_data: MBMeshData, at: Vector3) -> MBSharedVertex:
 	for sv in mesh_data.shared_vertices:
@@ -541,8 +589,13 @@ static func _bevel_one_vertex(mesh_data: MBMeshData, sv: MBSharedVertex, amount:
 		var n := outline.size()
 		var prev_i: int = outline[(i - 1 + n) % n]
 		var next_i: int = outline[(i + 1) % n]
-		var prev_cut := _cut_position(mesh_data, v_pos, mesh_data.positions[prev_i], cut, prev_i, cache, lookup)
-		var next_cut := _cut_position(mesh_data, v_pos, mesh_data.positions[next_i], cut, next_i, cache, lookup)
+		# Owner = the face: every face keeps its OWN copies of the cut points, so
+		# each face's auto-UV projection owns its texture slots (a shared copy let
+		# the last face overwrite the others and shredded auto UVs). The rebuild
+		# below welds the coincident copies back into one shared group.
+		var fi_key: int = int(e[0])
+		var prev_cut := _cut_position(mesh_data, v_pos, mesh_data.positions[prev_i], cut, prev_i, cache, lookup, fi_key)
+		var next_cut := _cut_position(mesh_data, v_pos, mesh_data.positions[next_i], cut, next_i, cache, lookup, fi_key)
 		var poly := PackedInt32Array()
 		for j in n:
 			if j == i:
@@ -559,7 +612,19 @@ static func _bevel_one_vertex(mesh_data: MBMeshData, sv: MBSharedVertex, amount:
 	var basis := MBUv.get_planar_basis(v_normal)
 	var u_axis: Vector3 = basis["u"]
 	var v_axis: Vector3 = basis["v"]
-	var ordered: Array = ring.keys()
+	# Per-face cut copies mean the ring holds the same corner twice (one copy
+	# per adjacent face). The corner face is built from POSITIONS, so collapse
+	# coincident copies first — otherwise it gets duplicated standing points
+	# and its outline degrades into self-edges.
+	var ordered: Array = []
+	var seen_pos := {}
+	for key in ring.keys():
+		var p: Vector3 = mesh_data.positions[int(key)]
+		var pos_key := "%d:%d:%d" % [roundi(p.x * 10000.0), roundi(p.y * 10000.0), roundi(p.z * 10000.0)]
+		if seen_pos.has(pos_key):
+			continue
+		seen_pos[pos_key] = int(key)
+		ordered.append(int(key))
 	var angles := {}
 	for idx in ordered:
 		angles[idx] = _corner_angle(mesh_data, int(idx), v_pos, u_axis, v_axis)
@@ -568,11 +633,16 @@ static func _bevel_one_vertex(mesh_data: MBMeshData, sv: MBSharedVertex, amount:
 	var corner_idx := PackedInt32Array()
 	var corner_pts := PackedVector3Array()
 	for idx in ordered:
-		corner_idx.append(int(idx))
-		corner_pts.append(mesh_data.positions[int(idx)])
+		var own := _dup_position_at(mesh_data, mesh_data.positions[int(idx)], int(idx))
+		corner_idx.append(own)
+		corner_pts.append(mesh_data.positions[own])
+	var first_face: MBFace = mesh_data.faces[int(entries[0][0])]
 	var corner := _build_polygon_face_with_normal(mesh_data, corner_pts, corner_idx, v_normal, int(entries[0][4]))
 	if corner == null:
 		return false
+	if first_face != null:
+		_copy_face_uv_props(first_face, corner)
+		MBUv.apply_face_uvs(mesh_data, corner)
 
 	var new_faces: Array[MBFace] = []
 	for fi in range(mesh_data.faces.size()):
@@ -588,6 +658,11 @@ static func _bevel_one_vertex(mesh_data: MBMeshData, sv: MBSharedVertex, amount:
 		if rebuilt_face == null:
 			new_faces.append(mesh_data.faces[fi])
 			continue
+		# The rebuilt polygon is a NEW face: without its predecessor's UV setup a
+		# face tinted with 2× tiling and 30° came back as a plain 1×1 projection
+		# (the "bevel shreds my auto UVs" report).
+		_copy_face_uv_props(mesh_data.faces[fi], rebuilt_face)
+		MBUv.apply_face_uvs(mesh_data, rebuilt_face)
 		new_faces.append(rebuilt_face)
 	new_faces.append(corner)
 	mesh_data.faces = new_faces
@@ -596,9 +671,27 @@ static func _bevel_one_vertex(mesh_data: MBMeshData, sv: MBSharedVertex, amount:
 
 ## Cut point on the edge vertex->neighbour, shared by every face using that
 ## edge (keyed by the neighbour's weld group).
+## Carries a face's UV setup (and grouping) onto a rebuilt / newly created face.
+static func _copy_face_uv_props(src: MBFace, dst: MBFace) -> void:
+	if src == null or dst == null:
+		return
+	dst.submesh_index = src.submesh_index
+	dst.manual_uv = src.manual_uv
+	dst.texture_group = src.texture_group
+	dst.element_group = src.element_group
+	dst.uv_offset = src.uv_offset
+	dst.uv_rotation = src.uv_rotation
+	dst.uv_scale = src.uv_scale
+	dst.uv_use_world_space = src.uv_use_world_space
+	dst.uv_flip_u = src.uv_flip_u
+	dst.uv_flip_v = src.uv_flip_v
+	dst.uv_swap_uv = src.uv_swap_uv
+	dst.uv_fill = src.uv_fill
+	dst.uv_anchor = src.uv_anchor
+
 static func _cut_position(mesh_data: MBMeshData, v_pos: Vector3, neighbour: Vector3,
-		cut: float, src: int, cache: Dictionary, lookup: Dictionary) -> int:
-	var key: int = lookup.get(src, src)
+		cut: float, src: int, cache: Dictionary, lookup: Dictionary, owner: int = -1) -> int:
+	var key := Vector2i(owner, int(lookup.get(src, src)))
 	if cache.has(key):
 		return int(cache[key])
 	var dir := neighbour - v_pos
