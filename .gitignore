@@ -1,3 +1,6 @@
 # Godot
 .godot/
 *.translation
+
+# Сборки для Godot Asset Store (zip + превью + текст листинга)
+dist/
