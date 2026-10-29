@@ -225,7 +225,7 @@ func _ensure_ui() -> void:
 
 	title_label = Label.new()
 	title_label.name = "TitleLabel"
-	title_label.text = "MeshBuilder v%s" % MBEditor.PLUGIN_VERSION
+	title_label.text = "MeshBuilder"
 	title_label.add_theme_font_size_override("font_size", 13)
 	title_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	header.add_child(title_label)

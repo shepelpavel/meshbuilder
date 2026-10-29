@@ -88,10 +88,9 @@ var _toolbar_bottom_button: Button = null
 func _get_plugin_name() -> String:
 	return "MeshBuilder"
 
-const VERSION := "0.1.19"
 
 func _enter_tree():
-	logger.info("plugin", "MeshBuilder v%s entering tree" % VERSION)
+	logger.info("plugin", "MeshBuilder entering tree")
 
 	# Receive 3D viewport input even with NOTHING selected: shape creation is
 	# armed from the New Shape menu and must work before any MBMesh is in the
@@ -676,7 +675,12 @@ func _handle_action_key(key_event: InputEventKey) -> int:
 		_:
 			# Mesh operation keys route into the toolbar ops pipeline; the
 			# op itself validates the selection context.
-			if not editing or not MBActions.OP_ACTION_TO_OPERATION.has(action):
+			if not MBActions.OP_ACTION_TO_OPERATION.has(action):
+				return AFTER_GUI_INPUT_PASS
+			if not editing:
+				# Object mode with a mesh selected: the ops edit elements only.
+				_op_hint("%s: switch to vertex / edge / face mode first (1 / 2 / 3)"
+					% String(MBActions.ACTIONS[action].get("label", action)).replace("Mesh Op: ", ""))
 				return AFTER_GUI_INPUT_PASS
 			_on_operation_requested(MBActions.OP_ACTION_TO_OPERATION[action])
 	return AFTER_GUI_INPUT_STOP
@@ -1876,10 +1880,13 @@ func _on_operation_requested(op_name: String) -> void:
 
 
 			if is_vertex_bevel and selection.selected_vertices.is_empty():
+				_op_hint("Bevel: select vertices first (1 = vertex mode)")
 				return
 			if not is_vertex_bevel and not is_face_bevel and edge_ids.is_empty():
+				_op_hint("Bevel: select edges first (2 = edge mode)")
 				return
 			if is_face_bevel and selection.selected_faces.is_empty():
+				_op_hint("Bevel: select faces first (3 = face mode)")
 				return
 
 			var shortest_l := INF
@@ -1926,6 +1933,9 @@ func _on_operation_requested(op_name: String) -> void:
 					_start_bevel_modal(mesh, is_face_bevel, faces_to_bevel, edges_to_bevel, float(result.get("max_amount", shortest_l)), eff_amount, result.get("new_face_ids", PackedInt32Array()), pre_snapshot, is_vertex_bevel, selection.selected_vertices.duplicate() if is_vertex_bevel else PackedInt32Array())
 					return
 				_finish_mesh_op(mesh, op_name, int(result.get("new_face_ids", PackedInt32Array()).size()), result.get("new_face_ids", PackedInt32Array()))
+			else:
+				_op_hint("Bevel: %s — raise Distance in Bevel Settings"
+					% String(result.get("error", "failed")).replace("Bevel edges: ", ""))
 		_:
 			if logger:
 				logger.warn("mesh_ops", "Unknown operation requested: %s" % op_name)
@@ -3659,7 +3669,7 @@ func _on_param_changed(param_name: String, value: float) -> void:
 		_refresh_trim_walls_preview()
 	elif _params_session_kind == "bevel":
 		if param_name == "distance":
-			op_bevel_amount = value
+			op_bevel_amount = maxf(value, 0.005)
 		elif param_name == "segments":
 			op_bevel_segments = clampi(int(round(value)), 1, 8)
 		_update_bevel_preview()
@@ -3765,15 +3775,33 @@ func _start_bevel_modal(mesh: MBMesh, is_face_bevel: bool, faces: PackedInt32Arr
 	# the slider produces a valid bevel — dragging can never toggle between a
 	# proper bevel and a refused/tiny one.
 	var max_d := maxf(0.05, max_amount) if max_amount < INF else 1.0
+	# A vertex bevel is a single flat cut, so it has no segments: showing the
+	# slider only invited "I move it and nothing happens".
 	var defs := [
-		{"name": "distance", "label": "Distance", "min": 0.0, "max": max_d, "step": 0.01, "suffix": "m"},
-		{"name": "segments", "label": "Segments", "min": 1, "max": 8, "step": 1, "kind": "int"}
+		{"name": "distance", "label": "Distance", "min": 0.005, "max": max_d, "step": 0.01, "suffix": "m"},
 	]
+	if not is_vertex_bevel:
+		defs.append({"name": "segments", "label": "Segments", "min": 1, "max": 8, "step": 1, "kind": "int"})
 	var values := {
 		"distance": eff_amount,
 		"segments": op_bevel_segments
 	}
 	tool_overlay.open_params("Bevel Settings", defs, values)
+
+## One-off message for an op that refused to run (an op fired with nothing
+## selected used to do NOTHING at all — indistinguishable from a broken key).
+func _op_hint(text: String) -> void:
+	_set_creation_hint(text)
+	if logger:
+		logger.warn("mesh_ops", text)
+	var token := _op_hint_token + 1
+	_op_hint_token = token
+	await get_tree().create_timer(3.0).timeout
+	if token == _op_hint_token:
+		_set_creation_hint("")
+		_update_mode_banner()
+
+var _op_hint_token: int = 0
 
 func _update_bevel_preview() -> void:
 	if _bevel_session_node == null or _bevel_session_snapshot == null:

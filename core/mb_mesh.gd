@@ -96,7 +96,7 @@ func claim_mesh_data() -> bool:
 ## the setter whenever the node is already in the tree: the shape creator's
 ## preview node enters the tree FIRST and receives its final data afterwards,
 ## so a claim taken only on entering left every created shape unclaimed, and a
-## Ctrl+D of it found nothing to conflict with (v0.9.186).
+## Ctrl+D of it found nothing to conflict with.
 func _stamp_claim() -> void:
 	if mb_mesh_data == null:
 		return
