@@ -368,46 +368,88 @@ static func delete_faces(mesh_data: MBMeshData, face_ids: PackedInt32Array) -> D
 		removed[fi] = true
 	return _replace_faces(mesh_data, removed, [], [])
 
-## Deletes whatever is selected: faces in face mode, faces touching the
-## selected edges in edge mode, faces touching the selected vertices in vertex
-## mode. `mode` is MBEditor.SelectMode.
+## Deletes whatever is selected: faces in face mode, all faces using the
+## selected vertices in vertex mode, and in edge mode it dissolves the edges —
+## the two adjacent faces merge into one. `mode` is MBEditor.SelectMode.
 static func delete_elements(mesh_data: MBMeshData, mode: int, element_ids: PackedInt32Array) -> Dictionary:
 	if element_ids.is_empty():
 		return _fail("Delete: nothing selected")
-	var face_ids := PackedInt32Array()
 	match mode:
 		1:
-			var vertex_set := {}
-			for v in element_ids:
-				vertex_set[v] = true
-			for fi in mesh_data.face_count():
-				var face := mesh_data.faces[fi]
-				for idx in face.get_indexes():
-					if vertex_set.has(idx):
-						face_ids.append(fi)
-						break
+			return delete_vertices(mesh_data, element_ids)
 		2:
-			var edges := mesh_data.get_common_edges()
-			var edge_pairs := {}
-			for e in element_ids:
-				if e < 0 or e >= edges.size():
-					continue
-				var ed := edges[e]
-				edge_pairs[Vector2i(mini(ed.a, ed.b), maxi(ed.a, ed.b))] = true
-			for fi in mesh_data.face_count():
-				var face := mesh_data.faces[fi]
-				var loop := face.get_indexes()
-				for i in loop.size():
-					var a := loop[i]
-					var b := loop[(i + 1) % loop.size()]
-					if edge_pairs.has(Vector2i(mini(a, b), maxi(a, b))):
-						face_ids.append(fi)
-						break
+			return dissolve_edges(mesh_data, element_ids)
 		_:
-			face_ids = element_ids.duplicate()
+			return delete_faces(mesh_data, element_ids)
+
+## Removes every face that uses any of the selected vertices (shared vertex
+## group ids, the same ids the selection stores).
+static func delete_vertices(mesh_data: MBMeshData, vertex_ids: PackedInt32Array) -> Dictionary:
+	if mesh_data == null or mesh_data.faces.is_empty():
+		return _fail("Delete vertices: no mesh data")
+	var pos_set := {}
+	for vid in vertex_ids:
+		if vid < 0:
+			continue
+		if vid < mesh_data.shared_vertices.size():
+			var sv: MBSharedVertex = mesh_data.shared_vertices[vid]
+			if sv != null:
+				for idx in sv.indices:
+					pos_set[idx] = true
+		elif vid < mesh_data.positions.size():
+			pos_set[vid] = true
+	if pos_set.is_empty():
+		return _fail("Delete vertices: no valid vertices")
+	var face_ids := PackedInt32Array()
+	for fi in mesh_data.face_count():
+		for idx in mesh_data.faces[fi].get_indexes():
+			if pos_set.has(idx):
+				face_ids.append(fi)
+				break
 	if face_ids.is_empty():
-		return _fail("Delete: nothing to remove")
+		return _fail("Delete vertices: no faces use the selection")
 	return delete_faces(mesh_data, face_ids)
+
+## Dissolves the selected edges: each removes itself and merges its two
+## adjacent faces into one (the merged outline keeps both loops' vertices).
+static func dissolve_edges(mesh_data: MBMeshData, edge_ids: PackedInt32Array) -> Dictionary:
+	if mesh_data == null or mesh_data.faces.is_empty():
+		return _fail("Dissolve edges: no mesh data")
+	var edges := mesh_data.get_common_edges()
+	var segments: Array = []
+	for e in edge_ids:
+		if e >= 0 and e < edges.size():
+			segments.append([mesh_data.positions[edges[e].a], mesh_data.positions[edges[e].b]])
+	if segments.is_empty():
+		return _fail("Dissolve edges: no valid edges")
+	var merged := 0
+	for segment in segments:
+		var hit := _faces_with_segment(mesh_data, segment[0], segment[1])
+		if hit.size() != 2:
+			continue
+		var res := merge_faces(mesh_data, hit)
+		if res.get("ok", false):
+			merged += 1
+	if merged == 0:
+		return _fail("Dissolve edges: nothing to dissolve")
+	return {"ok": true, "new_face_ids": PackedInt32Array(), "merged_count": merged}
+
+## Faces whose loop has the segment between two positions (welded copies
+## compare by coordinates, not by index).
+static func _faces_with_segment(mesh_data: MBMeshData, p0: Vector3, p1: Vector3) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var eps := 0.0001
+	for fi in mesh_data.face_count():
+		var loop := mesh_data.faces[fi].get_indexes()
+		var n := loop.size()
+		for i in n:
+			var a := mesh_data.positions[loop[i]]
+			var b := mesh_data.positions[loop[(i + 1) % n]]
+			if (a.distance_to(p0) < eps and b.distance_to(p1) < eps) \
+					or (a.distance_to(p1) < eps and b.distance_to(p0) < eps):
+				out.append(fi)
+				break
+	return out
 
 ## Removes the selected faces from `mesh_data` and returns them as a new
 ## MBMeshData (positions/attributes copied, welds rebuilt).
@@ -1357,7 +1399,7 @@ static func collapse_elements(mesh_data: MBMeshData, mode: int, element_ids: Pac
 	mesh_data.faces = surviving_faces
 	_rebuild_topology(mesh_data)
 
-	return {"ok": true, "target_position": target_pos}
+	return {"ok": true, "target_position": target_pos, "new_face_ids": PackedInt32Array()}
 
 ## Detects open boundary loops touching selected edges and caps each with a new polygon face.
 ## If edge_ids is empty, caps all open boundary loops found on the mesh.

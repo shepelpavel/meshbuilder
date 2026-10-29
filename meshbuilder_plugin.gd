@@ -1896,13 +1896,13 @@ func _on_operation_requested(op_name: String) -> void:
 				if tool_overlay != null:
 					_start_bevel_modal(mesh, is_face_bevel, faces_to_bevel, edges_to_bevel, float(result.get("max_amount", shortest_l)), eff_amount, result.get("new_face_ids", PackedInt32Array()), pre_snapshot)
 					return
-				_finish_mesh_op(mesh, op_name, int(result["new_face_ids"].size()), result.get("new_face_ids", PackedInt32Array()))
+				_finish_mesh_op(mesh, op_name, int(result.get("new_face_ids", PackedInt32Array()).size()), result.get("new_face_ids", PackedInt32Array()))
 		_:
 			if logger:
 				logger.warn("mesh_ops", "Unknown operation requested: %s" % op_name)
 			return
 
-	if not result["ok"]:
+	if not result.get("ok", false):
 		if logger:
 			logger.warn("mesh_ops", "%s failed: %s" % [op_name, result.get("error", "?")])
 		return
@@ -1910,7 +1910,7 @@ func _on_operation_requested(op_name: String) -> void:
 	cmd.capture_after()
 	if not cmd.is_noop():
 		cmd.add_to_undo_manager(get_undo_redo())
-	_finish_mesh_op(mesh, op_name, int(result["new_face_ids"].size()), result.get("new_face_ids", PackedInt32Array()))
+	_finish_mesh_op(mesh, op_name, int(result.get("new_face_ids", PackedInt32Array()).size()), result.get("new_face_ids", PackedInt32Array()))
 ## sibling holding the extracted faces. One undo action covers both (the new
 ## node is registered as a do-reference so undo keeps it alive for redo).
 func _perform_detach(mesh: MBMesh, face_ids: PackedInt32Array) -> void:
