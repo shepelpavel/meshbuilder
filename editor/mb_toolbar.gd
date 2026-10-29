@@ -61,8 +61,6 @@ signal materials_dock_requested
 ## Emitted when the user clicks the UV Editor button to focus the 2D UV panel.
 signal uv_editor_requested
 
-## Emitted when the user selects a Time of Day environment preset from the toolbar.
-signal env_preset_requested(preset_name: String)
 
 ## Emitted when the user toggles the Lit / Cast Shadows object-state buttons
 ## (row 3). They apply to the whole current scene selection.
@@ -104,7 +102,6 @@ var _btn_materials: Button
 var _btn_uv_editor: Button
 var _op_buttons: Dictionary = {}
 var _btn_settings: Button
-var _btn_env: MenuButton
 var _btn_grid_panel: Button
 var _lbl_grid_state: Label
 var _btn_obj_lit: Button
@@ -363,22 +360,6 @@ func _build_ui() -> void:
 	_btn_settings.focus_mode = Control.FOCUS_NONE
 	_btn_settings.tooltip_text = "Display settings (grid, wireframe, selection, hover opacity)"
 	_btn_settings.toggled.connect(func(on: bool): settings_panel_toggled.emit(on))
-	# Environment group
-	_btn_env = MenuButton.new()
-	_btn_env.name = "EnvButton"
-	_btn_env.icon = _load_icon("icon_env.svg")
-	if _btn_env.icon == null:
-		_btn_env.text = "Env"
-	_btn_env.flat = true
-	_btn_env.focus_mode = Control.FOCUS_NONE
-	_btn_env.tooltip_text = "Time of Day: Quick environment presets (Dawn, Day, Dusk, Night)"
-	var env_popup: PopupMenu = _btn_env.get_popup()
-	env_popup.add_item("🌅 Dawn", 0)
-	env_popup.add_item("☀️ Day", 1)
-	env_popup.add_item("🌇 Dusk", 2)
-	env_popup.add_item("🌙 Night", 3)
-	env_popup.id_pressed.connect(_on_env_menu_pressed)
-
 	_update_row_layout()
 
 func _make_sep() -> VSeparator:
@@ -730,18 +711,3 @@ func sync_grid(g: MBGrid) -> void:
 	_lbl_grid_state.text = text
 
 
-
-
-func _on_env_menu_pressed(id: int) -> void:
-	var names := MBEnvironment.get_preset_names()
-	if id >= 0 and id < names.size():
-		set_env_preset(names[id])
-		env_preset_requested.emit(names[id])
-
-func set_env_preset(preset_name: String) -> void:
-	if _btn_env == null:
-		return
-	var p := MBEnvironment.get_preset(preset_name)
-	_btn_env.tooltip_text = "Time of Day: %s (Click to change: Dawn, Day, Dusk, Night)" % p.get("name", preset_name.capitalize())
-	if _btn_env.icon == null:
-		_btn_env.text = p.get("label", preset_name.capitalize()) + " ▾"

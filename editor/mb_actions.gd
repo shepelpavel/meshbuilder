@@ -97,12 +97,6 @@ const ACTIONS: Dictionary = {
 	# Smoothing Groups & Normals
 	"smooth_auto":          { "label": "Normals: Auto-Smooth Mesh (45 deg)","keys": [] },
 	# Dedicated Tools
-	# Environment / Time of Day
-	"env_dawn":        { "label": "Environment: Dawn", "keys": [] },
-	"env_day":         { "label": "Environment: Day", "keys": [] },
-	"env_dusk":        { "label": "Environment: Dusk", "keys": [] },
-	"env_night":       { "label": "Environment: Night", "keys": [] },
-	"env_cycle":       { "label": "Environment: Cycle Time of Day", "keys": [] },
 }
 
 ## Mesh-op action id → the op string the toolbar/plugin pipeline expects.

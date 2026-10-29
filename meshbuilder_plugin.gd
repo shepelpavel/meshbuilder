@@ -163,7 +163,6 @@ func _enter_tree():
 	toolbar.materials_dock_requested.connect(focus_material_dock)
 	toolbar.uv_editor_requested.connect(focus_uv_editor)
 	toolbar.settings_panel_toggled.connect(_on_settings_panel_toggled)
-	toolbar.env_preset_requested.connect(_on_env_preset_requested)
 	toolbar.vertex_snap_toggled.connect(func(on: bool):
 		gizmo_plugin.element_editor.vertex_snap_enabled = on
 		if editor.active_mesh != null:
@@ -199,7 +198,6 @@ func _enter_tree():
 	tool_overlay.sync_grid(grid)
 	tool_overlay.display_setting_changed.connect(_on_display_setting_changed)
 	tool_overlay.display_reset_pressed.connect(_on_display_reset)
-	tool_overlay.env_preset_requested.connect(_on_env_preset_requested)
 	_load_display_settings()
 	_add_overlay_to_3d_viewport(tool_overlay)
 
@@ -662,16 +660,6 @@ func _handle_action_key(key_event: InputEventKey) -> int:
 				logger.info("tools", "Proportional Editing %s (radius=%.2f)" % [
 					"ON" if gizmo_plugin.element_editor.proportional_enabled else "OFF",
 					gizmo_plugin.element_editor.proportional_radius])
-		&"env_dawn":
-			_on_env_preset_requested("dawn")
-		&"env_day":
-			_on_env_preset_requested("day")
-		&"env_dusk":
-			_on_env_preset_requested("dusk")
-		&"env_night":
-			_on_env_preset_requested("night")
-		&"env_cycle":
-			_cycle_env_preset()
 		_:
 			# Mesh operation keys route into the toolbar ops pipeline; the
 			# op itself validates the selection context.
@@ -1477,41 +1465,6 @@ func _on_settings_panel_toggled(open: bool) -> void:
 		tool_overlay.open_settings()
 	else:
 		tool_overlay.close_settings()
-func _on_env_preset_requested(preset_name: String) -> void:
-	var root: Node3D = null
-	if Engine.is_editor_hint():
-		root = EditorInterface.get_edited_scene_root() as Node3D
-	if root == null and get_tree() != null:
-		root = get_tree().current_scene as Node3D
-	if root == null and is_inside_tree() and get_tree().root != null:
-		for child in get_tree().root.get_children():
-			if child is Node3D:
-				root = child
-				break
-	if root == null:
-		if logger:
-			logger.warn("env", "Cannot apply environment preset: no active 3D scene root")
-		return
-
-	var ur = get_undo_redo() if Engine.is_editor_hint() else null
-	var res := MBEnvironment.apply_preset(root, preset_name, ur)
-	var norm_name: String = res.get("preset", preset_name)
-	if toolbar != null:
-		toolbar.set_env_preset(norm_name)
-	if tool_overlay != null:
-		tool_overlay.set_active_env_preset(norm_name)
-	if logger:
-		logger.info("env", "Applied environment preset '%s'" % norm_name)
-
-func _cycle_env_preset() -> void:
-	var names := MBEnvironment.get_preset_names()
-	var root: Node3D = null
-	if Engine.is_editor_hint():
-		root = EditorInterface.get_edited_scene_root() as Node3D
-	var cur: String = root.get_meta("mb_env_preset", "day") if root != null else "day"
-	var idx := names.find(cur)
-	var next_idx := (idx + 1) % names.size()
-	_on_env_preset_requested(names[next_idx])
 
 
 func _load_display_settings() -> void:
