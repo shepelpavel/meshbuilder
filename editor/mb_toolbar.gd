@@ -64,9 +64,6 @@ signal uv_editor_requested
 ## Emitted when the user selects a Time of Day environment preset from the toolbar.
 signal env_preset_requested(preset_name: String)
 
-## Emitted when the user toggles the split-rows layout button.
-signal split_rows_toggled(two_rows: bool)
-
 ## Emitted when the user toggles the Lit / Cast Shadows object-state buttons
 ## (row 3). They apply to the whole current scene selection.
 signal object_lit_toggled(pressed: bool)
@@ -80,26 +77,10 @@ const ICON_DIR := "res://addons/meshbuilder/icons/"
 # Internal UI & Layout
 # ==============================================================================
 
-enum RowsMode {
-	AUTO = 0,
-	SINGLE = 1,
-	TWO_ROWS = 2,
-}
-
-## Window width breakpoint in pixels for auto-detection: below this width, 2 rows are used.
-const AUTO_SPLIT_THRESHOLD := 1050.0
-
-var rows_mode: RowsMode = RowsMode.TWO_ROWS
 var _row1: HBoxContainer
 var _row2: HBoxContainer
 var _row3: HBoxContainer
 var _row4: HBoxContainer
-var _two_rows: bool = true
-## Rows 3 & 4 (Extended Tools) ship VISIBLE: a fresh import must show the
-## whole toolset (the user can still fold them with the Split Rows toggle,
-## which persists via meshbuilder/toolbar/two_rows).
-var _extended_visible: bool = true
-var _btn_split_rows: Button
 var _btn_vertex_snap: Button
 var _btn_proportional: Button
 var _spin_prop_radius: SpinBox
@@ -107,7 +88,6 @@ var _spin_prop_radius: SpinBox
 signal vertex_snap_toggled(pressed: bool)
 signal proportional_toggled(pressed: bool)
 signal proportional_radius_changed(radius: float)
-var _logo: TextureRect
 var _btn_move: Button
 var _btn_rotate: Button
 var _btn_scale: Button
@@ -149,12 +129,6 @@ var _sep_row3_smooth: VSeparator
 var _tool_group: ButtonGroup = ButtonGroup.new()
 var _mode_group: ButtonGroup = ButtonGroup.new()
 
-## Whether the toolbar is displayed across 2 rows.
-var two_rows: bool:
-	get:
-		return _two_rows
-	set(val):
-		set_two_rows(val)
 var editor: MBEditor = null:
 	set = set_editor
 
@@ -167,10 +141,6 @@ func _init() -> void:
 	size_flags_horizontal = Control.SIZE_EXPAND | Control.SIZE_FILL
 	add_theme_constant_override("separation", 2)
 	_build_ui()
-
-func _notification(what: int) -> void:
-	if what == NOTIFICATION_RESIZED:
-		_check_auto_split()
 
 func _build_ui() -> void:
 	_row1 = HBoxContainer.new()
@@ -199,28 +169,6 @@ func _build_ui() -> void:
 	_row4.add_theme_constant_override("separation", 4)
 	_row4.visible = true
 	add_child(_row4)
-
-	# Header: Logo + Split Rows button (placed on the left so it's never cut off)
-	_logo = TextureRect.new()
-	_logo.name = "Logo"
-	_logo.texture = _load_icon("mb_logo.svg")
-	_logo.custom_minimum_size = Vector2(18, 18)
-	_logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_logo.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_logo.tooltip_text = "MeshBuilder"
-
-	_btn_split_rows = Button.new()
-	_btn_split_rows.name = "SplitRowsToggle"
-	_btn_split_rows.icon = _load_icon("icon_split_rows.svg")
-	if _btn_split_rows.icon == null:
-		_btn_split_rows.text = "☷"
-	_btn_split_rows.flat = true
-	_btn_split_rows.toggle_mode = true
-	# Pre-pressed to match the shipped-visible rows 3 & 4 (fresh imports).
-	_btn_split_rows.button_pressed = true
-	_btn_split_rows.tooltip_text = "Extended Tools (Row 3): Advanced Selection, Object Tools, CSG Booleans, Smoothing"
-	_btn_split_rows.toggled.connect(_on_split_rows_button_toggled)
-	_btn_split_rows.gui_input.connect(_on_split_rows_button_gui_input)
 
 	# Tools group
 	_sep_tools = _make_sep()
@@ -479,37 +427,6 @@ func _build_ui() -> void:
 func _make_sep() -> VSeparator:
 	return VSeparator.new()
 
-## Sets layout mode: AUTO (0), SINGLE (1), or TWO_ROWS (2).
-func set_rows_mode(mode: int) -> void:
-	rows_mode = (clampi(mode, 0, 2)) as RowsMode
-	if rows_mode == RowsMode.AUTO:
-		_check_auto_split()
-	else:
-		set_two_rows(rows_mode == RowsMode.TWO_ROWS)
-	_update_split_button_tooltip()
-## Sets whether the toolbar is split across 2 horizontal rows.
-func set_two_rows(value: bool) -> void:
-	_extended_visible = value
-	if _btn_split_rows != null and _btn_split_rows.button_pressed != value:
-		_btn_split_rows.set_pressed_no_signal(value)
-	_update_row_layout()
-
-func _check_auto_split() -> void:
-	pass
-
-func _on_split_rows_button_toggled(pressed: bool) -> void:
-	_extended_visible = pressed
-	_row3.visible = pressed
-	if _row4 != null:
-		_row4.visible = pressed
-	split_rows_toggled.emit(pressed)
-
-func _on_split_rows_button_gui_input(_event: InputEvent) -> void:
-	pass
-
-func _update_split_button_tooltip() -> void:
-	if _btn_split_rows != null:
-		_btn_split_rows.tooltip_text = "Extended Tools: Toggle Rows 3 & 4 (Grid, Selection, Object Tools, CSG, Snapping)"
 func _update_row_layout() -> void:
 	for c in _row1.get_children():
 		_row1.remove_child(c)
@@ -520,12 +437,11 @@ func _update_row_layout() -> void:
 
 	_row1.visible = true
 	_row2.visible = true
-	_row3.visible = _extended_visible
+	_row3.visible = true
 	if _row4 != null:
-		_row4.visible = _extended_visible
+		_row4.visible = true
 
-	# Row 1: Header | Tools | Mesh Operations | Env
-	var grp_header: Array[Control] = [_logo, _btn_split_rows]
+	# Row 1: Tools | Mesh Operations | Env
 	var grp_tools: Array[Control] = [_sep_tools, _btn_move, _btn_rotate, _btn_scale]
 	var grp_ops: Array[Control] = [
 		_sep_ops,
@@ -536,7 +452,6 @@ func _update_row_layout() -> void:
 		_op_buttons["weld_vertices"], _op_buttons["detach_faces"],
 		_op_buttons["delete_faces"]
 	]
-	for c in grp_header: _row1.add_child(c)
 	for c in grp_tools: _row1.add_child(c)
 	for c in grp_ops: _row1.add_child(c)
 	_row1.add_child(_btn_env)

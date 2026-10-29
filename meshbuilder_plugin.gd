@@ -168,7 +168,6 @@ func _enter_tree():
 	toolbar.uv_editor_requested.connect(focus_uv_editor)
 	toolbar.settings_panel_toggled.connect(_on_settings_panel_toggled)
 	toolbar.env_preset_requested.connect(_on_env_preset_requested)
-	toolbar.split_rows_toggled.connect(_on_toolbar_split_rows_toggled)
 	toolbar.vertex_snap_toggled.connect(func(on: bool):
 		gizmo_plugin.element_editor.vertex_snap_enabled = on
 		if editor.active_mesh != null:
@@ -186,13 +185,6 @@ func _enter_tree():
 	)
 	toolbar.object_lit_toggled.connect(_on_object_lit_toggled)
 	toolbar.object_shadow_toggled.connect(_on_object_shadow_toggled)
-	if Engine.is_editor_hint():
-		var ed_settings := EditorInterface.get_editor_settings()
-		if ed_settings != null:
-			if ed_settings.has_setting("meshbuilder/toolbar/rows_mode"):
-				toolbar.set_rows_mode(int(ed_settings.get_setting("meshbuilder/toolbar/rows_mode")))
-			elif ed_settings.has_setting("meshbuilder/toolbar/two_rows"):
-				toolbar.set_two_rows(bool(ed_settings.get_setting("meshbuilder/toolbar/two_rows")))
 	_mount_toolbar_in_bottom_panel()
 	toolbar.sync_grid(grid)
 	# Tool overlay panel floating in the 3D viewport (readouts + params
@@ -1489,12 +1481,6 @@ func _cycle_env_preset() -> void:
 	_on_env_preset_requested(names[next_idx])
 
 
-func _on_toolbar_split_rows_toggled(two_rows: bool) -> void:
-	if Engine.is_editor_hint():
-		var ed_settings := EditorInterface.get_editor_settings()
-		if ed_settings != null:
-			ed_settings.set_setting("meshbuilder/toolbar/rows_mode", toolbar.rows_mode)
-			ed_settings.set_setting("meshbuilder/toolbar/two_rows", two_rows)
 func _load_display_settings() -> void:
 	var grid_op := 0.7
 	var wire_op := 0.7
