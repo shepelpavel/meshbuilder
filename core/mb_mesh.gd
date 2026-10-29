@@ -152,7 +152,7 @@ func _is_instanced_content() -> bool:
 ## (No _process: the camera-scaled gizmo refresh that used to run here — a
 ## script call per MBMesh per frame, in the editor AND in shipped games — is
 ## the plugin's job now, for the few nodes that draw scaled overlays; see
-## poibuilder_plugin.gd::_refresh_camera_scaled_gizmos.)
+## meshbuilder_plugin.gd::_refresh_camera_scaled_gizmos.)
 
 func _validate_property(property: Dictionary) -> void:
 	if property.name == "collider_type":

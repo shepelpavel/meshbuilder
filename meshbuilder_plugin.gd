@@ -167,7 +167,6 @@ func _enter_tree():
 	toolbar.materials_dock_requested.connect(focus_material_dock)
 	toolbar.uv_editor_requested.connect(focus_uv_editor)
 	toolbar.settings_panel_toggled.connect(_on_settings_panel_toggled)
-	toolbar.docs_requested.connect(_on_docs_requested)
 	toolbar.env_preset_requested.connect(_on_env_preset_requested)
 	toolbar.split_rows_toggled.connect(_on_toolbar_split_rows_toggled)
 	toolbar.vertex_snap_toggled.connect(func(on: bool):
@@ -1489,11 +1488,6 @@ func _cycle_env_preset() -> void:
 	var next_idx := (idx + 1) % names.size()
 	_on_env_preset_requested(names[next_idx])
 
-func _on_docs_requested() -> void:
-	OS.shell_open("https://francesco149.github.io/poibuilder/")
-	if logger:
-		logger.info("plugin", "Opened docs on GitHub Pages")
-
 
 func _on_toolbar_split_rows_toggled(two_rows: bool) -> void:
 	if Engine.is_editor_hint():
@@ -1705,7 +1699,7 @@ func _edge_ids_for_op(mesh_data: MBMeshData) -> PackedInt32Array:
 func _on_operation_requested(op_name: String) -> void:
 	# Object-level ops act on the SCENE selection (plain MeshInstance3D /
 	# CSGShape3D nodes, or several MBMeshes at once) — they must run even when
-	# nothing is being element-edited: poibuilderizing a raw GLB mesh happens
+	# nothing is being element-edited: converting a raw GLB mesh happens
 	# exactly when NO MBMesh is active, so these sit BEFORE the editing gate.
 	if op_name == "meshbuilderize" or op_name == "probuilderize":
 		_perform_meshbuilderize()

@@ -18,7 +18,7 @@ func _get_drag_data(_at_position: Vector2) -> Variant:
 	var path := material_resource.resource_path
 	var files := PackedStringArray([path]) if not path.is_empty() else PackedStringArray()
 	return {
-		"type": "poibuilder_material",
+		"type": "meshbuilder_material",
 		"material": material_resource,
 		"files": files
 	}

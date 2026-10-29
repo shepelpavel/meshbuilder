@@ -80,7 +80,7 @@ func _is_material_data(data: Variant) -> bool:
 	if data is Material:
 		return true
 	if data is Dictionary:
-		if data.get("type") == "poibuilder_material" and data.get("material") is Material:
+		if data.get("type") == "meshbuilder_material" and data.get("material") is Material:
 			return true
 		if data.get("material") is Material:
 			return true

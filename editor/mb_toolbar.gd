@@ -61,8 +61,6 @@ signal materials_dock_requested
 ## Emitted when the user clicks the UV Editor button to focus the 2D UV panel.
 signal uv_editor_requested
 
-## Emitted when the user clicks Docs to open the bundled HTML site.
-signal docs_requested
 ## Emitted when the user selects a Time of Day environment preset from the toolbar.
 signal env_preset_requested(preset_name: String)
 
@@ -99,7 +97,7 @@ var _row4: HBoxContainer
 var _two_rows: bool = true
 ## Rows 3 & 4 (Extended Tools) ship VISIBLE: a fresh import must show the
 ## whole toolset (the user can still fold them with the Split Rows toggle,
-## which persists via poibuilder/toolbar/two_rows).
+## which persists via meshbuilder/toolbar/two_rows).
 var _extended_visible: bool = true
 var _btn_split_rows: Button
 var _btn_vertex_snap: Button
@@ -131,7 +129,6 @@ var _btn_uv_editor: Button
 var _op_buttons: Dictionary = {}
 var _btn_settings: Button
 var _btn_env: MenuButton
-var _btn_docs: Button
 var _btn_grid_panel: Button
 var _lbl_grid_state: Label
 var _btn_obj_lit: Button
@@ -477,16 +474,6 @@ func _build_ui() -> void:
 	env_popup.add_item("🌙 Night", 3)
 	env_popup.id_pressed.connect(_on_env_menu_pressed)
 
-	_btn_docs = Button.new()
-	_btn_docs.name = "DocsButton"
-	_btn_docs.icon = _load_icon("icon_docs.svg")
-	if _btn_docs.icon == null:
-		_btn_docs.text = "Docs"
-	_btn_docs.flat = true
-	_btn_docs.focus_mode = Control.FOCUS_NONE
-	_btn_docs.tooltip_text = "Docs: open the MeshBuilder (PoiBuilder) manual online"
-	_btn_docs.pressed.connect(func(): docs_requested.emit())
-
 	_update_row_layout()
 
 func _make_sep() -> VSeparator:
@@ -561,7 +548,7 @@ func _update_row_layout() -> void:
 	var grp_shapes: Array[Control] = [_sep_shapes, _btn_new_shape, _btn_ngon, _btn_edit_params]
 	var grp_docks: Array[Control] = [
 		_sep_docks, _btn_materials, _btn_uv_editor, _btn_overlay, _btn_recover_overlay,
-		_btn_settings, _btn_docs
+		_btn_settings
 	]
 	_row2.add_child(_btn_object)
 	_row2.add_child(_btn_vertex)
