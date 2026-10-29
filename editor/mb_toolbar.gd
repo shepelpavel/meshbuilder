@@ -96,6 +96,7 @@ var _btn_new_shape: MenuButton
 var _btn_ngon: Button
 var _btn_edit_params: Button
 var _btn_trim_walls: Button
+var _btn_merge_by_distance: Button
 var _btn_overlay: Button
 var _btn_recover_overlay: Button
 var _btn_materials: Button
@@ -206,6 +207,9 @@ func _build_ui() -> void:
 	_make_op_button("Merge", "merge_faces", "Merge edge-adjacent selected faces into one n-gon", "icon_merge.svg")
 	_make_op_button("Subdiv", "subdivide_faces", "Subdivide the selected quads into 4", "icon_subdivide.svg")
 	_make_op_button("Merge", "weld_vertices", "Merge the selected vertices into their centroid (M)", "icon_weld.svg")
+	_btn_merge_by_distance = _make_op_button("Merge by Dist", "merge_by_distance",
+		"Collapse every pair of vertices closer than 1 mm into one (Blender's Merge by Distance) — works on the whole mesh, no selection needed",
+		"icon_merge_distance.svg")
 	_make_op_button("Detach", "detach_faces", "Detach the selected faces into a new MBMesh node", "icon_detach.svg")
 	_make_op_button("Del", "delete_selection", "Delete selection: faces, edges or vertices (X)", "icon_delete.svg")
 
@@ -406,6 +410,7 @@ func _update_row_layout() -> void:
 			_op_buttons["merge_objects"], _op_buttons["mirror_object"], _op_buttons["center_pivot"],
 			_op_buttons["freeze_transform"], _op_buttons["meshbuilderize"],
 		],
+		[_btn_merge_by_distance],
 		[_op_buttons["csg_union"], _op_buttons["csg_subtract"], _op_buttons["csg_intersect"]],
 		[_btn_trim_walls],
 		[_btn_materials, _btn_uv_editor, _btn_overlay, _btn_recover_overlay, _btn_settings],
@@ -595,6 +600,8 @@ func _on_selection_info_changed(_arg = null) -> void:
 	if _op_buttons.has("select_face_ring"):
 		_op_buttons["select_face_ring"].disabled = not (in_face and faces_selected)
 
+	if _btn_merge_by_distance != null:
+		_btn_merge_by_distance.disabled = not has_mesh
 	if _op_buttons.has("merge_objects"):
 		_op_buttons["merge_objects"].disabled = not has_mesh
 	if _op_buttons.has("mirror_object"):

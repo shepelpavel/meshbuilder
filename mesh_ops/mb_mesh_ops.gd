@@ -914,6 +914,72 @@ static func weld_vertices(mesh_data: MBMeshData, vertex_ids: PackedInt32Array) -
 		"cap_face_ids": PackedInt32Array(), "vertex_groups": mesh_data.shared_vertices.size()}
 	return result
 
+## Blender's "Merge by Distance": every cluster of positions closer than
+## `tolerance` collapses onto one vertex (the cluster keeps its first member's
+## position), and faces that lose their area entirely are dropped. Selection is
+## irrelevant — it works on the whole mesh, like the Blender operator.
+static func merge_by_distance(mesh_data: MBMeshData, tolerance: float = 0.001) -> Dictionary:
+	if mesh_data == null or mesh_data.positions.is_empty():
+		return _fail("Merge by distance: no mesh data")
+	var tol: float = maxf(tolerance, 0.000001)
+	var groups := MBMeshData.build_welds_from_positions(mesh_data.positions, tol)
+	# Every corner of a face-copied mesh already sits in a weld group of
+	# coincident copies (position privacy) — those are NOT doubles. A cluster
+	# counts only when it holds two or more DISTINCT points, so a clean cube
+	# reports 0 instead of the number of its copies.
+	var merged := 0
+	var collapse: Array = []
+	for sv in groups:
+		if sv == null or sv.indices.size() < 2:
+			continue
+		var uniq: Array[Vector3] = []
+		for k in sv.indices:
+			var p: Vector3 = mesh_data.positions[k]
+			var known := false
+			for u in uniq:
+				if u.distance_squared_to(p) < 0.000000000001:
+					known = true
+					break
+			if not known:
+				uniq.append(p)
+		if uniq.size() < 2:
+			continue
+		merged += uniq.size() - 1
+		collapse.append(sv)
+	if merged == 0:
+		return {"ok": true, "merged": 0, "removed_faces": 0,
+			"vertex_groups": groups.size(), "new_face_ids": PackedInt32Array()}
+	for sv: MBSharedVertex in collapse:
+		var rep: Vector3 = mesh_data.positions[sv.indices[0]]
+		for k in sv.indices:
+			if k >= 0 and k < mesh_data.positions.size():
+				mesh_data.positions[k] = rep
+	_rebuild_welds(mesh_data)
+
+	# Faces whose corners all collapsed onto one another are gone from the
+	# surface: dropping them keeps the mesh manifold instead of leaving
+	# zero-area slivers behind (Blender removes doubles the same way).
+	var lookup := mesh_data.get_shared_vertex_lookup()
+	var removed := 0
+	var kept: Array[MBFace] = []
+	for face in mesh_data.faces:
+		if face == null:
+			continue
+		var outline := face.get_outline_indexes()
+		var distinct := {}
+		for i in outline.size():
+			distinct[int(lookup.get(outline[i], outline[i]))] = true
+		if distinct.size() < 3:
+			removed += 1
+			continue
+		kept.append(face)
+	if removed > 0:
+		mesh_data.faces = kept
+		_rebuild_topology(mesh_data)
+	return {"ok": true, "merged": merged, "removed_faces": removed,
+		"vertex_groups": mesh_data.shared_vertices.size(),
+		"new_face_ids": PackedInt32Array()}
+
 # ==============================================================================
 # Edge operations
 # ==============================================================================

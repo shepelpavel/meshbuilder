@@ -1645,6 +1645,8 @@ func _on_drag_topology_committed(mesh: MBMesh, new_face_ids: PackedInt32Array = 
 const OP_EXTRUDE_DISTANCE := 0.25
 const OP_INSET_AMOUNT := 0.25
 const OP_BEVEL_AMOUNT := 0.1
+## Merge by Distance tolerance: 1 mm (exact duplicates and slivers).
+const MERGE_BY_DISTANCE_TOLERANCE := 0.001
 const OP_BEVEL_SEGMENTS := 1
 var op_bevel_amount: float = OP_BEVEL_AMOUNT
 var op_bevel_segments: int = OP_BEVEL_SEGMENTS
@@ -1814,6 +1816,16 @@ func _on_operation_requested(op_name: String) -> void:
 				MBEditor.SelectMode.FACE:
 					elem_ids = selection.selected_faces.duplicate()
 			result = MBMeshOps.collapse_elements(mesh_data, int(editor.select_mode), elem_ids)
+		"merge_by_distance":
+			result = MBMeshOps.merge_by_distance(mesh_data, MERGE_BY_DISTANCE_TOLERANCE)
+			if not result.get("ok", false):
+				_op_hint("Merge by distance: %s" % result.get("error", "failed"))
+				return
+			if int(result.get("merged", 0)) == 0:
+				_op_hint("Merge by distance: nothing closer than %d mm"
+					% int(round(MERGE_BY_DISTANCE_TOLERANCE * 1000.0)))
+				return
+			_op_hint("Merged vertices by distance: %d" % int(result.get("merged", 0)))
 		"fill_hole":
 			var edge_ids := _edge_ids_for_op(mesh_data)
 			result = MBMeshOps.fill_hole(mesh_data, edge_ids)
