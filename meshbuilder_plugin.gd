@@ -43,6 +43,10 @@ var _trim_walls_last_click_pos: Vector2 = Vector2.ZERO
 
 var tool_overlay: MBToolOverlay
 var toolbar: MBToolbar
+
+## X-Ray (translucent) view mode of the edited mesh.
+var xray_on: bool = false
+var _xray_node: GeometryInstance3D = null
 var material_dock: MBMaterialDock = null
 ## Bottom-panel host and tab button for the Material & UV panel (it used to be
 ## a right-slot dock, which ate the editor's right column).
@@ -183,6 +187,7 @@ func _enter_tree():
 	)
 	toolbar.object_lit_toggled.connect(_on_object_lit_toggled)
 	toolbar.object_shadow_toggled.connect(_on_object_shadow_toggled)
+	toolbar.xray_toggled.connect(_on_xray_toggled)
 	_mount_toolbar_in_bottom_panel()
 	toolbar.sync_grid(grid)
 	# Tool overlay panel floating in the 3D viewport (readouts + params
@@ -279,6 +284,8 @@ func _enter_tree():
 	logger.info("plugin", "MeshBuilder plugin initialized")
 
 func _exit_tree():
+	if xray_on:
+		set_xray(false)
 	if logger:
 		logger.info("plugin", "MeshBuilder plugin exiting tree")
 
@@ -598,6 +605,10 @@ func _handle_action_key(key_event: InputEventKey) -> int:
 			if not node_selected:
 				return AFTER_GUI_INPUT_PASS
 			editor.select_mode = MBEditor.SelectMode.OBJECT
+		&"toggle_xray":
+			if not node_selected:
+				return AFTER_GUI_INPUT_PASS
+			set_xray(not xray_on)
 		&"tool_move":
 			if not node_selected:
 				return AFTER_GUI_INPUT_PASS
@@ -924,6 +935,31 @@ func _on_object_lit_toggled(pressed: bool) -> void:
 func _on_object_shadow_toggled(pressed: bool) -> void:
 	_apply_object_shadow(_selected_state_nodes(), pressed)
 
+func _on_xray_toggled(pressed: bool) -> void:
+	set_xray(pressed)
+
+## Turns the translucent view of the edited mesh on or off. Materials are not
+## mutated: MBXray puts surface overrides on the node and takes them back.
+func set_xray(on: bool) -> void:
+	if on:
+		var mesh := editor.active_mesh
+		if mesh == null:
+			xray_on = false
+			if toolbar != null:
+				toolbar.set_xray_active(false)
+			return
+		if _xray_node != null and _xray_node != mesh and is_instance_valid(_xray_node):
+			MBXray.disable(_xray_node)
+		xray_on = MBXray.enable(mesh)
+		_xray_node = mesh if xray_on else null
+	else:
+		if _xray_node != null and is_instance_valid(_xray_node):
+			MBXray.disable(_xray_node)
+		_xray_node = null
+		xray_on = false
+	if toolbar != null:
+		toolbar.set_xray_active(xray_on)
+
 func _apply_object_lit(nodes: Array[GeometryInstance3D], lit: bool) -> void:
 	var records: Array[Dictionary] = []
 	for node in nodes:
@@ -1216,6 +1252,11 @@ func _on_engine_tool_selected(tool: int) -> void:
 ## forced active), and the overlay panel visibility.
 func _update_editing_context() -> void:
 	var mesh_selected := editor.active_mesh != null
+	if xray_on:
+		if editor.active_mesh == null:
+			set_xray(false)
+		elif editor.active_mesh != _xray_node:
+			set_xray(true)
 	var editing := editor.is_editing()
 	toolbar.set_editing_active(mesh_selected)
 	tool_overlay.update_visibility()

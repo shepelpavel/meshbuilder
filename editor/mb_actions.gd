@@ -36,6 +36,7 @@ const ACTIONS: Dictionary = {
 	"select_texture":  { "label": "Select: Texture Mode",  "keys": [[KEY_6, 0, 0, 0]] },
 	"select_object":   { "label": "Select: Object Mode",   "keys": [] },
 	"cycle_space":     { "label": "Cycle Gizmo Space",     "keys": [[KEY_X, 0, 1, 0]] },
+	"toggle_xray":     { "label": "View: X-Ray (Translucent Mesh)", "keys": [[KEY_Z, 0, 0, 1]] },
 	# Transform tools (Blender-style letters).
 	"tool_move":       { "label": "Tool: Move",             "keys": [[KEY_G, 0, 0, 0]] },
 	"tool_rotate":     { "label": "Tool: Rotate",           "keys": [[KEY_R, 0, 0, 0]] },

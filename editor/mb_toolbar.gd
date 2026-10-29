@@ -68,6 +68,7 @@ signal env_preset_requested(preset_name: String)
 ## (row 3). They apply to the whole current scene selection.
 signal object_lit_toggled(pressed: bool)
 signal object_shadow_toggled(pressed: bool)
+signal xray_toggled(pressed: bool)
 # Icons
 # ==============================================================================
 
@@ -108,6 +109,7 @@ var _btn_grid_panel: Button
 var _lbl_grid_state: Label
 var _btn_obj_lit: Button
 var _btn_obj_shadow: Button
+var _btn_xray: Button
 
 var _tool_group: ButtonGroup = ButtonGroup.new()
 var _mode_group: ButtonGroup = ButtonGroup.new()
@@ -259,6 +261,18 @@ func _build_ui() -> void:
 	_btn_obj_shadow.disabled = true
 	_btn_obj_shadow.tooltip_text = "Cast Shadows: shadow casting on/off for the selected objects. All casting = checked, none = unchecked, mixed = unchecked (checking synchronizes every selected object)."
 	_btn_obj_shadow.toggled.connect(func(on: bool): object_shadow_toggled.emit(on))
+
+	_btn_xray = Button.new()
+	_btn_xray.name = "XRayToggle"
+	_btn_xray.icon = _load_icon("icon_xray.svg")
+	if _btn_xray.icon == null:
+		_btn_xray.text = "X-Ray"
+	_btn_xray.flat = true
+	_btn_xray.toggle_mode = true
+	_btn_xray.focus_mode = Control.FOCUS_NONE
+	_btn_xray.disabled = true
+	_btn_xray.tooltip_text = "X-Ray: show the edited mesh translucent so back faces are visible (Alt+Z)"
+	_btn_xray.toggled.connect(func(on: bool): xray_toggled.emit(on))
 	# Shapes group
 	_btn_new_shape = MenuButton.new()
 	_btn_new_shape.name = "NewShape"
@@ -403,7 +417,7 @@ func _update_row_layout() -> void:
 	_add_row([
 		[_btn_vertex_snap, _btn_proportional, _spin_prop_radius],
 		[_btn_grid_panel, _lbl_grid_state],
-		[_btn_obj_lit, _btn_obj_shadow],
+		[_btn_obj_lit, _btn_obj_shadow, _btn_xray],
 	])
 	_add_row([
 		[_btn_new_shape, _btn_ngon, _btn_edit_params],
@@ -645,6 +659,13 @@ func sync_object_state(lit_state: int, shadow_state: int, enabled: bool) -> void
 	if _btn_obj_shadow != null:
 		_btn_obj_shadow.disabled = not enabled
 		_btn_obj_shadow.set_pressed_no_signal(shadow_state == 1)
+	if _btn_xray != null:
+		_btn_xray.disabled = not enabled
+
+## Mirrors the X-Ray mode onto its toggle WITHOUT emitting.
+func set_xray_active(on: bool) -> void:
+	if _btn_xray != null and _btn_xray.button_pressed != on:
+		_btn_xray.set_pressed_no_signal(on)
 
 ## A mesh can re-open its params while it is still the pristine factory shape
 ## it was created as (no element drags, no mesh ops).
