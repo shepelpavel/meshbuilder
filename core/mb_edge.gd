@@ -46,19 +46,7 @@ func get_hash() -> int:
 func contains(vertex: int) -> bool:
 	return a == vertex or b == vertex
 
-## Returns the other vertex index connected by this edge, or -1 if vertex is not on this edge.
-func other_vertex(vertex: int) -> int:
-	if vertex == a:
-		return b
-	elif vertex == b:
-		return a
-	return -1
 
-## Returns true if this edge shares any vertex index with another edge.
-func contains_edge(other: MBEdge) -> bool:
-	if other == null:
-		return false
-	return a == other.a or b == other.a or a == other.b or b == other.b
 
 ## String representation formatted as "[a, b]".
 func _to_string() -> String:

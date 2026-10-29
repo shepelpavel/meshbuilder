@@ -48,10 +48,6 @@ func remove(index: int) -> bool:
 func clear() -> void:
 	indices.clear()
 
-## Offsets all indices in this group by the specified amount.
-func shift_indices(offset: int) -> void:
-	for i in range(indices.size()):
-		indices[i] += offset
 
 ## Returns a shallow copy of this MBSharedVertex with a duplicated indices array.
 func duplicate_shared() -> MBSharedVertex:

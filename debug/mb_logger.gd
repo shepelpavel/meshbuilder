@@ -65,32 +65,6 @@ func error(category: String, message: String) -> void:
 func clear() -> void:
 	entries.clear()
 
-func get_entries_by_category(category: String) -> Array[Dictionary]:
-	var result: Array[Dictionary] = []
-	for e in entries:
-		if e.category == category:
-			result.append(e)
-	return result
 
-func get_entries_by_level(min_level: Level) -> Array[Dictionary]:
-	var result: Array[Dictionary] = []
-	for e in entries:
-		if e.level >= min_level:
-			result.append(e)
-	return result
 
-func dump_to_file(path: String) -> Error:
-	var f := FileAccess.open(path, FileAccess.WRITE)
-	if not f:
-		return FileAccess.get_open_error()
-	for e in entries:
-		f.store_line("%d [%s] %s: %s" % [
-			e.time_msec,
-			Level.keys()[e.level],
-			e.category,
-			e.message
-		])
-	return OK
 
-func entry_count() -> int:
-	return entries.size()

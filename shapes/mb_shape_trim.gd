@@ -15,11 +15,6 @@ enum ProfileType {
 	STEPPED,
 }
 
-enum TrimKind {
-	SKIRTING,
-	CORNICE,
-	DADO,
-}
 
 # ==============================================================================
 # 2D Profile Curves

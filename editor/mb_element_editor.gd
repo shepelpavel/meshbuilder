@@ -195,17 +195,6 @@ func _get_source_vertices(node: MBMesh) -> PackedVector3Array:
 		sources.append(xf * _drag_start_xf[_drag_latest_id].origin)
 	return sources
 
-## Finds the nearest vertex position in world space across all MBMesh nodes.
-func _find_nearest_scene_vertex(node: MBMesh, target_world: Vector3, max_dist: float = INF) -> Vector3:
-	var best_pos := target_world
-	var best_dist := max_dist
-	var candidates := _get_candidate_vertices(node)
-	for v in candidates:
-		var d := target_world.distance_to(v)
-		if d < best_dist:
-			best_dist = d
-			best_pos = v
-	return best_pos
 
 # ==============================================================================
 # Drag gestures (tool + modifier keys decide how a drag applies)
@@ -2657,18 +2646,6 @@ func drag_readout() -> String:
 		return "Scale: %s" % _fmt_vec(_last_drag_scale)
 	return "Delta: %s" % _fmt_vec(_last_drag_translation)
 
-## Writes a face's triangle winding, flipped or as originally captured.
-func _set_face_winding(face: MBFace, tris: PackedInt32Array, flipped: bool) -> void:
-	if flipped:
-		var out := PackedInt32Array()
-		out.resize(tris.size())
-		for t in range(0, tris.size() - 2, 3):
-			out[t] = tris[t + 2]
-			out[t + 1] = tris[t + 1]
-			out[t + 2] = tris[t]
-		face.set_indexes(out)
-	else:
-		face.set_indexes(tris.duplicate())
 
 ## Lerps the ring faces' inner corners with the SAME amount as the inner
 ## faces (they are duplicates of the pulled corners) — keeps the ring

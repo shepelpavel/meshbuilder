@@ -535,13 +535,6 @@ func has_creation_extents() -> bool:
 # Params session (modal)
 # ==============================================================================
 
-## The line under a params session's grid ("Changes preview live" by default).
-## open_params() resets it, so a session that does not set one keeps the
-## default.
-func set_params_hint(text: String) -> void:
-	_ensure_ui()
-	if _params_hint != null:
-		_params_hint.text = text if not text.is_empty() else "Changes preview live"
 
 ## Opens a shape-parameter session: one row per `def`
 ## ({name, label, min, max, step, suffix}) seeded from `values`.
@@ -611,17 +604,6 @@ func open_params(title: String, defs: Array, values: Dictionary) -> void:
 	refresh()
 	_update_position_from_bottom_left.call_deferred()
 
-## Updates several param values without emitting param_changed (used to
-## snap back on cancel).
-func set_param_values(values: Dictionary) -> void:
-	for param_name in _param_spinboxes:
-		if values.has(param_name):
-			var spin: SpinBox = _param_spinboxes[param_name]
-			spin.set_value_no_signal(float(values[param_name]))
-	for param_name in _param_checkboxes:
-		if values.has(param_name):
-			var check: CheckBox = _param_checkboxes[param_name]
-			check.set_pressed_no_signal(float(values[param_name]) > 0.5)
 
 ## Snapshot of all param values currently in the controls.
 func get_param_values() -> Dictionary:
@@ -693,7 +675,7 @@ func _build_grid_section() -> void:
 	var on_grid_check := CheckBox.new()
 	on_grid_check.name = "GridOnGrid"
 	on_grid_check.text = "Draw On Grid"
-	on_grid_check.tooltip_text = "New shapes draw on the grid plane at its elevation (G)"
+	on_grid_check.tooltip_text = "New shapes draw on the grid plane at its elevation (Shift+G)"
 	on_grid_check.focus_mode = Control.FOCUS_NONE
 	on_grid_check.toggled.connect(func(on: bool): grid_setting_changed.emit(&"draw_on_grid", 1.0 if on else 0.0))
 	rows.add_child(on_grid_check)

@@ -11,7 +11,6 @@ extends RefCounted
 # ==============================================================================
 
 ## Golden ratio constant, matching ProBuilder.
-const PHI: float = 1.618033988749895
 
 ## Comparison epsilon.
 const FLT_EPSILON: float = 0.0001

@@ -247,17 +247,6 @@ const OVERFLOW_CHUNK_PREFIX := "_PBSurfaceChunk"
 ## below are mirrored on every rebuild.
 var _overflow_chunks: Array[MeshInstance3D] = []
 
-## Every mesh this node renders: `mesh` plus the overflow chunks. Consumers
-## that read the RENDERED geometry (colliders from render meshes, audits)
-## must walk all of them.
-func get_render_meshes() -> Array[Mesh]:
-	var out: Array[Mesh] = []
-	if mesh != null:
-		out.append(mesh)
-	for chunk in _overflow_chunks:
-		if is_instance_valid(chunk) and chunk.mesh != null:
-			out.append(chunk.mesh)
-	return out
 
 ## The local AABB of EVERYTHING this node renders. `get_aabb()` is only the
 ## first chunk's box, so a ray prefilter against it could skip faces that

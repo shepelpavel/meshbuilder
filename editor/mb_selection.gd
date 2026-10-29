@@ -49,41 +49,15 @@ func set_mesh_data(p_mesh_data: MBMeshData) -> void:
 # Vertex Selection (Common/Shared Vertex Indices)
 # ==============================================================================
 
-## Returns true if the given common vertex index is selected.
-func is_vertex_selected(common_index: int) -> bool:
-	return selected_vertices.has(common_index)
 
-## Adds a common vertex index to the selection.
-func add_vertex(common_index: int) -> void:
-	if not selected_vertices.has(common_index):
-		selected_vertices.append(common_index)
-		selection_changed.emit()
 
-## Removes a common vertex index from the selection.
-func remove_vertex(common_index: int) -> void:
-	var idx: int = _index_of_int(selected_vertices, common_index)
-	if idx >= 0:
-		selected_vertices.remove_at(idx)
-		selection_changed.emit()
 
-## Toggles a common vertex index in/out of the selection.
-func toggle_vertex(common_index: int) -> void:
-	if is_vertex_selected(common_index):
-		remove_vertex(common_index)
-	else:
-		add_vertex(common_index)
 
 ## Sets the vertex selection to exactly the given set.
 func set_vertices(common_indices: PackedInt32Array) -> void:
 	selected_vertices = common_indices.duplicate()
 	selection_changed.emit()
 
-## Clears only vertex selection.
-func clear_vertices() -> void:
-	if selected_vertices.is_empty():
-		return
-	selected_vertices.clear()
-	selection_changed.emit()
 
 ## Returns the number of selected vertices.
 func selected_vertex_count() -> int:
@@ -118,46 +92,14 @@ func is_edge_selected(edge: MBEdge) -> bool:
 			return true
 	return false
 
-## Adds an edge to the selection (deduplicated by common edge).
-func add_edge(edge: MBEdge) -> void:
-	if edge == null:
-		return
-	if not is_edge_selected(edge):
-		selected_edges.append(edge)
-		selection_changed.emit()
 
-## Removes an edge from the selection (matched by common edge).
-func remove_edge(edge: MBEdge) -> void:
-	if edge == null or mesh_data == null:
-		return
-	var common: MBEdge = mesh_data.get_common_edge(edge)
-	if common == null:
-		return
-	for i in range(selected_edges.size() - 1, -1, -1):
-		var sel_common: MBEdge = mesh_data.get_common_edge(selected_edges[i])
-		if sel_common != null and sel_common.equals(common):
-			selected_edges.remove_at(i)
-			selection_changed.emit()
-			return
 
-## Toggles an edge in/out of the selection.
-func toggle_edge(edge: MBEdge) -> void:
-	if is_edge_selected(edge):
-		remove_edge(edge)
-	else:
-		add_edge(edge)
 
 ## Sets the edge selection to exactly the given set.
 func set_edges(edges: Array[MBEdge]) -> void:
 	selected_edges = edges.duplicate()
 	selection_changed.emit()
 
-## Clears only edge selection.
-func clear_edges() -> void:
-	if selected_edges.is_empty():
-		return
-	selected_edges.clear()
-	selection_changed.emit()
 
 ## Returns the number of selected edges.
 func selected_edge_count() -> int:
@@ -167,41 +109,15 @@ func selected_edge_count() -> int:
 # Face Selection
 # ==============================================================================
 
-## Returns true if the given face index is selected.
-func is_face_selected(face_index: int) -> bool:
-	return selected_faces.has(face_index)
 
-## Adds a face index to the selection.
-func add_face(face_index: int) -> void:
-	if not selected_faces.has(face_index):
-		selected_faces.append(face_index)
-		selection_changed.emit()
 
-## Removes a face index from the selection.
-func remove_face(face_index: int) -> void:
-	var idx: int = _index_of_int(selected_faces, face_index)
-	if idx >= 0:
-		selected_faces.remove_at(idx)
-		selection_changed.emit()
 
-## Toggles a face index in/out of the selection.
-func toggle_face(face_index: int) -> void:
-	if is_face_selected(face_index):
-		remove_face(face_index)
-	else:
-		add_face(face_index)
 
 ## Sets the face selection to exactly the given set.
 func set_faces(face_indices: PackedInt32Array) -> void:
 	selected_faces = face_indices.duplicate()
 	selection_changed.emit()
 
-## Clears only face selection.
-func clear_faces() -> void:
-	if selected_faces.is_empty():
-		return
-	selected_faces.clear()
-	selection_changed.emit()
 
 ## Returns the number of selected faces.
 func selected_face_count() -> int:
@@ -220,9 +136,6 @@ func clear_all() -> void:
 	if had_selection:
 		selection_changed.emit()
 
-## Returns total count of selected elements across all modes.
-func total_selected() -> int:
-	return selected_vertices.size() + selected_edges.size() + selected_faces.size()
 
 ## Returns true if nothing is selected in any mode.
 func is_empty() -> bool:

@@ -103,8 +103,6 @@ func drop_last() -> bool:
 	walls.remove_at(walls.size() - 1)
 	return true
 
-func clear_walls() -> void:
-	walls.clear()
 
 func is_chosen(mesh: MBMesh, face: int) -> bool:
 	for w in walls:

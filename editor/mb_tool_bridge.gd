@@ -323,10 +323,6 @@ func apply_orientation_space(space: int) -> bool:
 	_press_local_coords(local_coords_for_space(space))
 	return true
 
-## True when the orientation space can actually be applied (the engine's
-## local-coords toggle was found at setup).
-func has_local_coords() -> bool:
-	return _local_coords_btn != null and is_instance_valid(_local_coords_btn)
 
 func _press_local_coords(pressed: bool) -> void:
 	if _local_coords_btn == null or not is_instance_valid(_local_coords_btn):
@@ -396,13 +392,6 @@ func press_engine_select_tool() -> bool:
 	btn.emit_signal("pressed")
 	return true
 
-## True when the engine currently sits on the select tool (no transform
-## gizmo). Tests drive this through stand-in buttons.
-func is_engine_in_select_tool() -> bool:
-	if not _buttons.has(PATH_SELECT):
-		return false
-	var btn: BaseButton = _buttons[PATH_SELECT]
-	return is_instance_valid(btn) and btn.button_pressed
 
 func _path_for_tool(tool: int) -> String:
 	match tool:
@@ -429,10 +418,6 @@ func _on_engine_tool_pressed(path: String) -> void:
 # Engine grid visibility (camera cull layer 25, same as View > View Grid)
 # ==============================================================================
 
-## Is the engine's own 3D grid cull layer enabled on the tracked camera?
-func engine_grid_visible() -> bool:
-	return _engine_grid_cam != null and is_instance_valid(_engine_grid_cam) \
-		and (_engine_grid_cam.cull_mask & (1 << GIZMO_GRID_LAYER)) != 0
 
 ## Hides/restores the engine's stock grid by flipping the grid cull layer on
 ## the viewport camera — exactly what the View > View Grid menu entry does

@@ -63,7 +63,6 @@ const FILL_SCREEN_SCALE: float = 0.00133
 ## facing arrow. Bounds/arrow draw ON TOP (show through the object); the
 ## hovered face fill is depth-tested at the selection opacity.
 const CREATION_COLOR := Color(0.2, 0.9, 1.0, 1.0)
-const CREATION_FILL_COLOR := Color(0.2, 0.9, 1.0, 0.32)
 const CREATION_ARROW_COLOR := Color(1.0, 0.55, 0.1, 1.0)
 
 # ==============================================================================

@@ -429,12 +429,6 @@ func _add_row(groups: Array) -> void:
 		for c in groups[i]:
 			row.add_child(c)
 
-## Total number of controls and buttons on the toolbar.
-func get_item_count() -> int:
-	var total := 0
-	for row in get_children():
-		total += row.get_child_count()
-	return total
 
 static func _load_icon(icon_name: String) -> Texture2D:
 	var path := ICON_DIR + icon_name
@@ -711,21 +705,9 @@ func sync_grid(g: MBGrid) -> void:
 		text += " (snap off)"
 	_lbl_grid_state.text = text
 
-## Lets the plugin reflect external close events back on the button.
-func set_grid_panel_open(open: bool) -> void:
-	_btn_grid_panel.set_pressed_no_signal(open)
 
-## Reflects materials dock open/closed state on the button.
-func set_materials_dock_active(active: bool) -> void:
-	if _btn_materials != null and _btn_materials.button_pressed != active:
-		_btn_materials.set_pressed_no_signal(active)
 
-func set_settings_panel_open(open: bool) -> void:
-	if _btn_settings != null and _btn_settings.button_pressed != open:
-		_btn_settings.set_pressed_no_signal(open)
 
-func new_shape_button() -> MenuButton:
-	return _btn_new_shape
 func _on_env_menu_pressed(id: int) -> void:
 	var names := MBEnvironment.get_preset_names()
 	if id >= 0 and id < names.size():
@@ -739,5 +721,3 @@ func set_env_preset(preset_name: String) -> void:
 	_btn_env.tooltip_text = "Time of Day: %s (Click to change: Dawn, Day, Dusk, Night)" % p.get("name", preset_name.capitalize())
 	if _btn_env.icon == null:
 		_btn_env.text = p.get("label", preset_name.capitalize()) + " ▾"
-func env_button() -> MenuButton:
-	return _btn_env

@@ -113,10 +113,6 @@ func step() -> float:
 func elevation() -> float:
 	return origin.y
 
-## The drawing plane for on-grid creation and the floor fallback.
-func grid_plane() -> Plane:
-	return Plane(Vector3.UP, origin.y)
-
 # ==============================================================================
 # Scalar / vector snapping (ProBuilderSnapping.Snap)
 # ==============================================================================
@@ -181,12 +177,6 @@ func snap_local_delta(node_basis: Basis, local_delta: Vector3) -> Vector3:
 		snap_val_exact(world.y, step()), snap_val_exact(world.z, step()))
 	return node_basis.inverse() * world
 
-## Snaps a world-space distance along an axis (extrude gestures): only the
-## component along `axis` is quantized; tangential motion passes through.
-func snap_distance_along(axis: Vector3, world_distance: float) -> float:
-	if not enabled:
-		return world_distance
-	return snap_val_exact(world_distance, step())
 
 ## Snaps a pure-rotation basis (as delivered by the engine's rotate drags) to
 ## `rotate_step_deg` about its own axis. Non-rotational bases pass through.

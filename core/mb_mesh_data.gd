@@ -168,12 +168,6 @@ func invalidate_caches() -> void:
 	_submesh_indices_cache.clear()
 	_submesh_keys_cache.clear()
 	_normals.clear()
-## Invalidates ONLY the geometry-derived caches (normals). Position edits
-## never change the common-edge list (pairs of indexes) or the weld groups,
-## so per-motion drags keep those caches hot instead of rebuilding them on
-## every mouse move.
-func invalidate_normals() -> void:
-	_normals.clear()
 
 ## Recomputes normals only for the faces owning `union` positions — the
 ## incremental path for drags, where exactly the drag union moves. Produces
@@ -284,10 +278,6 @@ func get_texture_anchor() -> Vector3:
 		has_texture_anchor = true
 	return texture_anchor
 
-## Sets the object-space texture anchor explicitly.
-func set_texture_anchor(anchor: Vector3) -> void:
-	texture_anchor = anchor
-	has_texture_anchor = true
 # ==============================================================================
 # Coincident Vertex Queries & Common Index Lookups
 # ==============================================================================
@@ -345,11 +335,6 @@ func get_coincident_vertices_from_faces(face_indices: PackedInt32Array) -> Packe
 		verts.append_array(face.get_distinct_indexes())
 	return get_coincident_vertices_multi(verts)
 
-## Returns the shared vertex group index for a given local vertex index.
-## Returns -1 if not found.
-func get_common_vertex(vertex: int) -> int:
-	var lookup := get_shared_vertex_lookup()
-	return lookup.get(vertex, -1)
 
 ## Converts a local edge to a "common" edge (both endpoints mapped to their
 ## shared vertex group indices). Returns null if edge is null.
@@ -434,60 +419,18 @@ static func build_welds_from_positions(positions: PackedVector3Array,
 # Data Setters
 # ==============================================================================
 
-## Sets positions, must match the total distinct vertex count referenced by faces.
-func set_positions(p_positions: PackedVector3Array) -> void:
-	positions = p_positions
 
 ## Sets faces and invalidates caches.
 func set_faces(p_faces: Array[MBFace]) -> void:
 	faces = p_faces
 	invalidate_caches()
 
-## Sets shared vertices and invalidates the shared vertex lookup cache.
-func set_shared_vertices(p_shared: Array[MBSharedVertex]) -> void:
-	shared_vertices = p_shared
-	invalidate_shared_vertex_lookup()
 
-## Sets shared textures and invalidates the shared texture lookup cache.
-func set_shared_textures(p_shared: Array[MBSharedVertex]) -> void:
-	shared_textures = p_shared
-	invalidate_shared_texture_lookup()
 
 # ==============================================================================
 # Validation
 # ==============================================================================
 
-## Checks if the mesh data is valid and internally consistent.
-## Returns an empty string if valid, or an error description if not.
-func validate() -> String:
-	if positions.is_empty():
-		return "No positions"
-	if faces.is_empty():
-		return "No faces"
-	var vc: int = positions.size()
-	for i in range(faces.size()):
-		var face: MBFace = faces[i]
-		if face == null:
-			return "Null face at index %d" % i
-		var idxs: PackedInt32Array = face.get_indexes()
-		if idxs.size() % 3 != 0:
-			return "Face %d has %d indices (not multiple of 3)" % [i, idxs.size()]
-		for idx in idxs:
-			if idx < 0 or idx >= vc:
-				return "Face %d references vertex %d (out of range 0..%d)" % [i, idx, vc - 1]
-	# Check textures0 size if present
-	if not textures0.is_empty() and textures0.size() != vc:
-		return "textures0 size %d != vertex count %d" % [textures0.size(), vc]
-	# Check textures1 size if present
-	if not textures1.is_empty() and textures1.size() != vc:
-		return "textures1 size %d != vertex count %d" % [textures1.size(), vc]
-	# Check colors size if present
-	if not colors.is_empty() and colors.size() != vc:
-		return "colors size %d != vertex count %d" % [colors.size(), vc]
-	# Check tangents size if present (4 floats per vertex)
-	if not tangents.is_empty() and tangents.size() != vc * 4:
-		return "tangents size %d != vertex count * 4 (%d)" % [tangents.size(), vc * 4]
-	return ""
 
 # ==============================================================================
 # Mesh Compilation & Normals (ToMesh)
@@ -598,15 +541,6 @@ func get_normals() -> PackedVector3Array:
 		calculate_normals()
 	return _normals
 
-## Installs pre-computed vertex normals so the flat/smoothing recomputation is
-## not forced — used when a transform (bake, import) already carries correct
-## per-vertex normals through a vertex remap. Returns false on size mismatch
-## (caller should fall back to calculate_normals()).
-func set_authored_normals(normals: PackedVector3Array) -> bool:
-	if normals.size() != positions.size():
-		return false
-	_normals = normals.duplicate()
-	return true
 
 ## Godot's per-mesh surface limit (RenderingServer MAX_MESH_SURFACES = 256).
 ## The engine refuses a 257th surface with only a logged error, and the faces
@@ -852,7 +786,7 @@ static var _cached_default_material: Material = null
 static func invalidate_default_material() -> void:
 	_cached_default_material = null
 
-## Returns the default MeshBuilder material (from EditorSettings, or stock 2x2 checkerboard fallback).
+## Returns the default MeshBuilder material (from EditorSettings, or the bundled checkerboard fallback).
 static func get_default_material() -> Material:
 	if _cached_default_material != null:
 		return _cached_default_material
@@ -930,11 +864,6 @@ func get_face_material(face: MBFace) -> Material:
 	if not materials.is_empty() and materials[0] != null:
 		return materials[0]
 	return get_default_material()
-## Assigns a material to a face. Allocates or reuses a submesh slot.
-func set_face_material(face: MBFace, mat: Material) -> void:
-	if face == null:
-		return
-	set_faces_material([face], mat)
 
 ## Assigns a material to multiple faces. Allocates or reuses a submesh slot.
 func set_faces_material(target_faces: Array, mat: Material) -> void:

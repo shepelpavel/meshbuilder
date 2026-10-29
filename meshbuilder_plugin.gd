@@ -68,11 +68,9 @@ var _last_mouse_pos: Vector2 = Vector2.ZERO
 var _last_mouse_camera: Camera3D = null
 ## Screen position of the previous motion event of the ACTIVE paint stroke
 ## (INF while no stroke runs): the anchor the dab-along interpolator walks from.
-var _paint_stroke_prev_screen: Vector2 = Vector2.INF
 ## Cap on dabs interpolated per motion event: a flick across the whole level
 ## must not walk hundreds of re-picks in one event (the stroke then simply
 ## dabs at 64 spacings and the real endpoint).
-const PAINT_STROKE_MAX_INTERP_STEPS := 64
 ## Time of the last press seen in the viewport, for click-recency checks.
 var _last_press_msec: int = -10000
 
@@ -600,6 +598,18 @@ func _handle_action_key(key_event: InputEventKey) -> int:
 			if not node_selected:
 				return AFTER_GUI_INPUT_PASS
 			editor.select_mode = MBEditor.SelectMode.OBJECT
+		&"tool_move":
+			if not node_selected:
+				return AFTER_GUI_INPUT_PASS
+			editor.tool_mode = MBEditor.ToolMode.MOVE
+		&"tool_rotate":
+			if not node_selected:
+				return AFTER_GUI_INPUT_PASS
+			editor.tool_mode = MBEditor.ToolMode.ROTATE
+		&"tool_scale":
+			if not node_selected:
+				return AFTER_GUI_INPUT_PASS
+			editor.tool_mode = MBEditor.ToolMode.SCALE
 		&"cycle_space":
 			if not editing:
 				return AFTER_GUI_INPUT_PASS
@@ -1242,7 +1252,6 @@ func _update_editing_context() -> void:
 ## node's gizmo (MBGridView caches world-space lines; the camera focus +
 ## grid settings gate rebuilds), so a redraw is only requested on real
 ## staleness — gizmo redraws are the native re-render trigger.
-var _grid_drawn_last := false
 
 func _process(delta: float) -> void:
 	_refresh_camera_scaled_gizmos()
@@ -2199,8 +2208,6 @@ func _perform_meshbuilderize() -> void:
 		if logger:
 			logger.info("plugin", "MeshBuilderized %d node(s) into editable MBMesh" % created_nodes.size())
 
-func _perform_probuilderize() -> void:
-	_perform_meshbuilderize()
 
 func _perform_csg_boolean(op: MBCsg.BooleanOp) -> void:
 	var ei := get_editor_interface()
@@ -3783,9 +3790,6 @@ func _sprite_placer_input(camera: Camera3D, event: InputEvent) -> int:
 # Texture Splatting & Stamp Viewport Input
 # ==============================================================================
 
-var _paint_pick_candidates: Array = []
-var _paint_pick_selected: Array = []
-var _paint_pick_frame: int = -1
 # ==============================================================================
 # Shape Params modal (create + edit sessions)
 # ==============================================================================

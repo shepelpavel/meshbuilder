@@ -197,12 +197,6 @@ func set_active_mesh(value: MBMesh) -> void:
 func is_editing() -> bool:
 	return active_mesh != null and select_mode != SelectMode.OBJECT
 
-## Leaves OBJECT mode into the remembered element mode (e.g. after a shape
-## creation session hands the new node over — the user can immediately
-## select edges/faces/verts).
-func restore_element_mode() -> void:
-	if select_mode == SelectMode.OBJECT:
-		select_mode = _last_element_mode
 
 ## Returns the display name for a given mode.
 static func mode_name(mode: SelectMode) -> String:

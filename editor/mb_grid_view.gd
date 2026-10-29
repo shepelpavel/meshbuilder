@@ -190,8 +190,6 @@ func set_visible(visible: bool) -> void:
 	if _instance_rid.is_valid():
 		RenderingServer.instance_set_visible(_instance_rid, _visible)
 
-func is_visible() -> bool:
-	return _visible and _instance_rid.is_valid()
 
 func is_active() -> bool:
 	return _instance_rid.is_valid()
@@ -240,9 +238,6 @@ func update(cam: Camera3D) -> bool:
 	update_ticks += 1
 	return true
 
-## Backward-compatible stub (no-op: the grid is drawn via RenderingServer directly).
-func draw_onto(_gizmo, _node: MBMesh, _gizmo_plugin: MBGizmoPlugin) -> void:
-	pass
 
 # ==============================================================================
 # ARMED creation cursor (node-independent hover square)

@@ -10,7 +10,6 @@
 class_name MBShapeParams
 extends RefCounted
 
-const KIND_SIZE := "size"    ## width/height/depth — mapped onto the creation drag
 const KIND_COUNT := "count"  ## integer parameter (SpinBox step 1)
 const KIND_VALUE := "value"  ## plain float parameter
 const KIND_BOOL := "bool"    ## toggle (CheckBox; stored as 0.0 / 1.0)

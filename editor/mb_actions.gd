@@ -36,9 +36,13 @@ const ACTIONS: Dictionary = {
 	"select_texture":  { "label": "Select: Texture Mode",  "keys": [[KEY_6, 0, 0, 0]] },
 	"select_object":   { "label": "Select: Object Mode",   "keys": [] },
 	"cycle_space":     { "label": "Cycle Gizmo Space",     "keys": [[KEY_X, 0, 0, 0]] },
+	# Transform tools (Blender-style letters).
+	"tool_move":       { "label": "Tool: Move",             "keys": [[KEY_G, 0, 0, 0]] },
+	"tool_rotate":     { "label": "Tool: Rotate",           "keys": [[KEY_R, 0, 0, 0]] },
+	"tool_scale":      { "label": "Tool: Scale",            "keys": [[KEY_S, 0, 0, 0]] },
 	# Snapping + grid.
 	"toggle_snap":     { "label": "Toggle Snapping",       "keys": [[KEY_Y, 0, 0, 0]] },
-	"toggle_on_grid":  { "label": "Toggle Draw On Grid",   "keys": [[KEY_G, 0, 0, 0]] },
+	"toggle_on_grid":  { "label": "Toggle Draw On Grid",   "keys": [[KEY_G, 0, 1, 0]] },
 	"toggle_grid":     { "label": "Toggle Grid Overlay",   "keys": [] },
 	"subdiv_increase": { "label": "Grid: Finer (Subdiv +1)",   "keys": [[KEY_EQUAL, 0, 0, 0]] },
 	"subdiv_decrease": { "label": "Grid: Coarser (Subdiv -1)", "keys": [[KEY_MINUS, 0, 0, 0]] },

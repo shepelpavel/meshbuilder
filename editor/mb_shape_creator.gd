@@ -102,7 +102,6 @@ var show_height_plane: bool = false
 
 
 ## Threshold difference between u_size and v_size to consider one dimension clearly dominant.
-const ASPECT_BIAS_THRESHOLD := 0.20
 ## The live preview node (owned and managed by the plugin; the creator only
 ## supplies data + placement for it). Null while nothing is being drawn.
 var preview_node: MBMesh = null

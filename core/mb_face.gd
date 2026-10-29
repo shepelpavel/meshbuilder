@@ -230,77 +230,14 @@ func _cache_edges() -> void:
 # Geometry Queries
 # ==============================================================================
 
-## Tests whether a triangle matches one of the triangles composing this face.
-func contains_triangle(a: int, b: int, c: int) -> bool:
-	for i in range(0, _indexes.size(), 3):
-		if _indexes[i] == a and _indexes[i + 1] == b and _indexes[i + 2] == c:
-			return true
-	return false
 
-## Returns true if the perimeter has exactly 4 edges.
-func is_quad() -> bool:
-	var edges: Array[MBEdge] = get_edges()
-	return edges.size() == 4
 
-## Converts a two-triangle quad face to an ordered cycle of 4 vertex indices.
-## Returns an empty PackedInt32Array if this face is not a quad.
-func to_quad() -> PackedInt32Array:
-	if not is_quad():
-		return PackedInt32Array()
-
-	var edges: Array[MBEdge] = get_edges()
-	if edges.size() != 4:
-		return PackedInt32Array()
-
-	var quad := PackedInt32Array([edges[0].a, edges[0].b, -1, -1])
-
-	var edge_2_idx: int = -1
-	for i in range(1, 4):
-		if edges[i].a == quad[1]:
-			quad[2] = edges[i].b
-			edge_2_idx = i
-			break
-		elif edges[i].b == quad[1]:
-			quad[2] = edges[i].a
-			edge_2_idx = i
-			break
-
-	for i in range(1, 4):
-		if i == edge_2_idx:
-			continue
-		if edges[i].a == quad[2]:
-			quad[3] = edges[i].b
-			break
-		elif edges[i].b == quad[2]:
-			quad[3] = edges[i].a
-			break
-
-	if quad[2] == -1 or quad[3] == -1:
-		return PackedInt32Array()
-
-	return quad
 
 # ==============================================================================
 # Index Manipulation
 # ==============================================================================
 
-## Adds an offset to all vertex indices and invalidates cache.
-func shift_indexes(offset: int) -> void:
-	for i in range(_indexes.size()):
-		_indexes[i] += offset
-	invalidate_cache()
 
-## Subtracts the minimum index value from all indices, shifting the lowest index to zero.
-func shift_indexes_to_zero() -> void:
-	if _indexes.is_empty():
-		return
-	var min_val: int = _indexes[0]
-	for i in range(1, _indexes.size()):
-		if _indexes[i] < min_val:
-			min_val = _indexes[i]
-	for i in range(_indexes.size()):
-		_indexes[i] -= min_val
-	invalidate_cache()
 
 ## Reverses the triangle indices array, flipping winding order and normals.
 func reverse() -> void:
