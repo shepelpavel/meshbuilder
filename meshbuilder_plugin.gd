@@ -86,7 +86,7 @@ var _toolbar_bottom_button: Button = null
 func _get_plugin_name() -> String:
 	return "MeshBuilder"
 
-const VERSION := "0.1.11"
+const VERSION := "0.1.12"
 
 func _enter_tree():
 	logger.info("plugin", "MeshBuilder v%s entering tree" % VERSION)
