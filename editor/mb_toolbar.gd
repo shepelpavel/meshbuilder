@@ -208,7 +208,7 @@ func _build_ui() -> void:
 	_make_op_button("Subdiv", "subdivide_faces", "Subdivide the selected quads into 4", "icon_subdivide.svg")
 	_make_op_button("Weld", "weld_vertices", "Weld the selected vertices together at their centroid", "icon_weld.svg")
 	_make_op_button("Detach", "detach_faces", "Detach the selected faces into a new MBMesh node", "icon_detach.svg")
-	_make_op_button("Del", "delete_selection", "Delete selection: faces, edges or vertices (Shift+X)", "icon_delete.svg")
+	_make_op_button("Del", "delete_selection", "Delete selection: faces, edges or vertices (X)", "icon_delete.svg")
 
 
 	# Row 3 Extended Tools: Advanced Selection, Object Ops, CSG Booleans, Smoothing

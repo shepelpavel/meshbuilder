@@ -35,7 +35,7 @@ const ACTIONS: Dictionary = {
 	"select_face":     { "label": "Select: Face Mode",     "keys": [[KEY_K, 0, 0, 0], [KEY_3, 0, 0, 0]] },
 	"select_texture":  { "label": "Select: Texture Mode",  "keys": [[KEY_6, 0, 0, 0]] },
 	"select_object":   { "label": "Select: Object Mode",   "keys": [] },
-	"cycle_space":     { "label": "Cycle Gizmo Space",     "keys": [[KEY_X, 0, 0, 0]] },
+	"cycle_space":     { "label": "Cycle Gizmo Space",     "keys": [[KEY_X, 0, 1, 0]] },
 	# Transform tools (Blender-style letters).
 	"tool_move":       { "label": "Tool: Move",             "keys": [[KEY_G, 0, 0, 0]] },
 	"tool_rotate":     { "label": "Tool: Rotate",           "keys": [[KEY_R, 0, 0, 0]] },
@@ -74,7 +74,7 @@ const ACTIONS: Dictionary = {
 	"op_subdivide":    { "label": "Mesh Op: Subdivide Faces", "keys": [] },
 	"op_weld":         { "label": "Mesh Op: Weld Vertices",   "keys": [] },
 	"op_detach":       { "label": "Mesh Op: Detach Faces",    "keys": [] },
-	"op_delete":       { "label": "Mesh Op: Delete Selection", "keys": [[KEY_X, 0, 1, 0]] },
+	"op_delete":       { "label": "Mesh Op: Delete Selection", "keys": [[KEY_X, 0, 0, 0]] },
 	"op_knife":        { "label": "Mesh Op: Knife Tool",     "keys": [] },
 	"op_bridge":       { "label": "Mesh Op: Bridge Edges",   "keys": [[KEY_B, 0, 0, 1]] },
 	"op_connect":      { "label": "Mesh Op: Connect",        "keys": [] },
