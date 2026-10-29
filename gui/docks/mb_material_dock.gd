@@ -730,11 +730,9 @@ func refresh_materials() -> void:
 		for m in editor.active_mesh.mb_mesh_data.materials:
 			_append_material_once(m)
 
-	# 3. The addon's OWN bundled textures register on EVERY project — a fresh
-	# install has no res://materials yet, and the depth-limited scan below
-	# never reaches addons/poibuilder/materials/textures (4 levels down). This
-	# is where the water/particle/waterfall sheets and shipped stamps come
-	# from on a fresh project.
+	# 3. The addon's own bundled texture (base checkerboard) registers on every
+	# project — a fresh install has no res://materials yet, and the
+	# depth-limited scan below never reaches materials/textures (4 levels down).
 	_scan_dir_for_materials("res://addons/meshbuilder/materials/textures")
 
 	# 4. Scan the rest of the project for materials and texture images
