@@ -32,7 +32,6 @@ var sprite_placer: MBSpritePlacer = null
 
 var dock_mode: DockMode = DockMode.MATERIAL
 
-var _selected_material: Material = null
 var _default_material_path: String = DEFAULT_MATERIAL_PATH
 var _project_materials: Array[Material] = []
 
@@ -41,16 +40,12 @@ var _btn_mode_mat: Button
 var _btn_mode_sprite: Button
 var _btn_mode_shape: Button
 # UI Nodes - Materials Section
-var _scroll: ScrollContainer
 var _material_grid: HFlowContainer
 var _status_label: Label
 var _file_dialog: EditorFileDialog
 
 # UI Nodes - Sections Container
 var _uv_and_tint_section: VBoxContainer
-var _opt_brush_source: OptionButton
-var _btn_brush_color: ColorPickerButton
-var _lbl_brush_source_hint: Label
 var _sprite_tool_section: VBoxContainer
 var _shape_tool_section: VBoxContainer
 
@@ -89,12 +84,6 @@ var _btn_reset_tint: Button
 # Scrolling Texture (animated UV) Controls
 
 # Paint Tool Controls
-var _spin_brush_radius: Range
-var _spin_brush_softness: Range
-var _spin_brush_opacity: Range
-var _chk_erase: CheckBox
-var _btn_clear_layer: Button
-var _lbl_optimize_result: Label = null
 
 # Stamp Tool Controls
 # Context Menu
@@ -152,6 +141,7 @@ func _get_material_or_texture_path(mat: Material) -> String:
 	if mat is StandardMaterial3D and mat.albedo_texture != null and not mat.albedo_texture.resource_path.is_empty():
 		return mat.albedo_texture.resource_path
 	return mat.resource_path
+
 
 func _save_default_material_setting(path: String) -> void:
 	_default_material_path = path
@@ -950,36 +940,36 @@ func _create_material_card(mat: Material) -> Control:
 
 func _show_context_menu(mat: Material, pos: Vector2) -> void:
 	_context_material = mat
+	if _context_menu == null:
+		_context_menu = PopupMenu.new()
+		_context_menu.name = "MaterialContextMenu"
+		_context_menu.id_pressed.connect(_on_context_menu_id_pressed)
+		add_child(_context_menu)
 	_context_menu.clear()
 	var is_def := (mat.resource_path == _default_material_path)
 	_context_menu.add_item("★ Set as Default for New Shapes", 1)
 	if is_def:
 		_context_menu.set_item_disabled(0, true)
 	_context_menu.add_item("Apply to Selection", 2)
-	_context_menu.add_item("Set as Paint Texture", 4)
-	_context_menu.add_item("Set as Stamp Texture", 5)
-	_context_menu.add_item("Set as Sprite Texture", 6)
-	_context_menu.add_item("Set as Particle Texture", 7)
+	_context_menu.add_item("Set as Sprite Texture", 4)
 	_context_menu.add_separator()
 	_context_menu.add_item("Copy Path", 3)
-	_context_menu.popup(Rect2i(Vector2i(pos), Vector2i(190, 130)))
+	_context_menu.popup(Rect2i(Vector2i(pos), Vector2i(210, 110)))
 
 func _on_context_menu_id_pressed(id: int) -> void:
 	if _context_material == null:
 		return
 	match id:
-		1: # Set as default
+		1:
 			var mat_path := _get_material_or_texture_path(_context_material)
 			if not mat_path.is_empty():
 				_save_default_material_setting(mat_path)
 				_rebuild_material_grid()
-				if plugin != null and plugin.logger != null:
-					plugin.logger.info("materials", "Set default shape material to %s" % _default_material_path)
-		2: # Apply
+		2:
 			_apply_material_to_selection(_context_material)
-		3: # Copy path
+		3:
 			DisplayServer.clipboard_set(_context_material.resource_path)
-		4: # Sprite
+		4:
 			_select_sprite_material(_context_material)
 			_set_dock_mode(DockMode.SPRITE)
 
