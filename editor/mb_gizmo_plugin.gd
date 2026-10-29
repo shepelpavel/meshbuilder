@@ -32,6 +32,11 @@ extends EditorNode3DGizmoPlugin
 # ==============================================================================
 
 const WIREFRAME_COLOR := Color(0.28, 0.28, 0.28, 0.7)
+## VERTEX / FACE base wireframe: the mesh silhouette must stay readable while
+## the user works on dots or fills, so those modes draw the edges as a soft
+## LIGHT stroke instead of the near-invisible dark one (a dark grey hairline
+## over a lit surface simply disappears).
+const SOFT_WIREFRAME_COLOR := Color(0.74, 0.78, 0.82, 0.5)
 ## EDGE-mode base wireframe: cyan, drawn slightly thinner than hover/select
 ## strokes (half offset, one stack pair instead of two).
 const EDGE_MODE_WIREFRAME_COLOR := Color(0.2, 0.9, 1.0, 0.7)
@@ -142,6 +147,12 @@ var redraws_by_node: Dictionary = {}
 var _live_stroke_offset: float = THICK_LINE_OFFSET
 var _live_fill_offset: float = 0.004
 
+## Base wireframe materials are OWNED here (not created through
+## create_material) so the Wireframe opacity slider can actually tint them —
+## it used to be stored and never applied.
+var _wire_soft_material: StandardMaterial3D
+var _wire_edge_material: StandardMaterial3D
+
 ## Display opacities (multipliers from Settings panel).
 var wireframe_opacity: float = 0.7
 var selection_opacity: float = 0.25
@@ -151,6 +162,12 @@ func apply_display_opacities(p_wireframe: float, p_selection: float, p_hover: fl
 	wireframe_opacity = p_wireframe
 	selection_opacity = p_selection
 	hover_opacity = p_hover
+	if _wire_soft_material != null:
+		_wire_soft_material.albedo_color = Color(SOFT_WIREFRAME_COLOR.r, SOFT_WIREFRAME_COLOR.g,
+			SOFT_WIREFRAME_COLOR.b, SOFT_WIREFRAME_COLOR.a * wireframe_opacity)
+	if _wire_edge_material != null:
+		_wire_edge_material.albedo_color = Color(EDGE_MODE_WIREFRAME_COLOR.r, EDGE_MODE_WIREFRAME_COLOR.g,
+			EDGE_MODE_WIREFRAME_COLOR.b, EDGE_MODE_WIREFRAME_COLOR.a * wireframe_opacity)
 	if _face_fill_material != null:
 		_face_fill_material.albedo_color = Color(FACE_FILL_COLOR.r, FACE_FILL_COLOR.g, FACE_FILL_COLOR.b, FACE_FILL_COLOR.a * selection_opacity)
 	if _face_hover_fill_material != null:
@@ -166,6 +183,8 @@ func apply_display_opacities(p_wireframe: float, p_selection: float, p_hover: fl
 func _init() -> void:
 	create_material("mb_wireframe", WIREFRAME_COLOR, false, false)
 	create_material("mb_wireframe_edge", EDGE_MODE_WIREFRAME_COLOR, false, false)
+	_wire_soft_material = _make_wire_material(SOFT_WIREFRAME_COLOR)
+	_wire_edge_material = _make_wire_material(EDGE_MODE_WIREFRAME_COLOR)
 	create_material("mb_selected_edge", SELECTED_COLOR, false, true)
 	create_material("mb_hover_edge", HOVER_COLOR, false, true)
 	create_handle_material("mb_center_handle")
@@ -180,6 +199,16 @@ func _init() -> void:
 func set_logger(value: MBLogger) -> void:
 	logger = value
 	element_editor.logger = value
+
+## Depth-tested unshaded line material (the base wireframe, thickened).
+static func _make_wire_material(color: Color) -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = color
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.no_depth_test = false
+	return mat
 
 static func _make_point_material(color: Color, point_size: float) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
@@ -474,12 +503,17 @@ func _redraw(gizmo) -> void:
 	if write_idx < n_indices:
 		wire_points.resize(write_idx)
 	if wire_points.size() >= 2:
-		if editor != null and editor.select_mode == MBEditor.SelectMode.EDGE \
-				and is_editing_node(node):
+		var mode: int = editor.select_mode if editor != null else MBEditor.SelectMode.OBJECT
+		var editing: bool = is_editing_node(node)
+		if editing and mode == MBEditor.SelectMode.EDGE:
 			# EDGE mode base wireframe: slightly thinner cyan (hover/select
 			# strokes drawn on top stay full-thick).
-			_add_thick_lines(gizmo, wire_points, get_material("mb_wireframe_edge", gizmo),
-				_live_stroke_offset * 0.5, 1)
+			_add_thick_lines(gizmo, wire_points, _wire_edge_material, _live_stroke_offset * 0.5, 1)
+		elif editing and mode in [MBEditor.SelectMode.VERTEX, MBEditor.SelectMode.FACE,
+				MBEditor.SelectMode.TEXTURE]:
+			# VERTEX / FACE: the edges keep a soft light stroke, so the mesh
+			# silhouette never disappears under dots and translucent fills.
+			_add_thick_lines(gizmo, wire_points, _wire_soft_material, _live_stroke_offset * 0.45, 1)
 		else:
 			gizmo.add_lines(wire_points, get_material("mb_wireframe", gizmo))
 
