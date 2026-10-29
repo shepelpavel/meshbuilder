@@ -544,6 +544,7 @@ func open_params(title: String, defs: Array, values: Dictionary) -> void:
 	params_open = true
 	_params_section.visible = true
 	_params_title.text = title.to_upper()
+	update_visibility()
 	for child in _params_grid.get_children():
 		_params_grid.remove_child(child)
 		child.queue_free()
@@ -1074,12 +1075,13 @@ func refresh() -> void:
 ## When panel_enabled is false (user toggled Panel off on toolbar), panel is strictly hidden.
 ## Otherwise, shows if pinned, params open, creation hint, or if selection/drag is active on a mesh.
 func update_visibility() -> void:
-	if not panel_enabled:
-		visible = false
-		return
-	# Modal states: always show when a modal session is open
+	# Modal states win over the panel switch: a live Bevel / Edit Params
+	# session must be visible, otherwise the operation looks like a no-op.
 	if params_open or grid_panel_open or settings_panel_open:
 		visible = true
+		return
+	if not panel_enabled:
+		visible = false
 		return
 	var creation_active := has_creation_hint() or has_creation_extents()
 	if creation_active:
