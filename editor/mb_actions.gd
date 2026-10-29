@@ -67,12 +67,12 @@ const ACTIONS: Dictionary = {
 	"toggle_proportional": { "label": "Snapping: Toggle Proportional",  "keys": [] },
 	# Mesh operations (toolbar equivalents; extrude/inset keep ProBuilder's
 	# Alt defaults, the rest ship unbound but rebindable).
-	"op_extrude":      { "label": "Mesh Op: Extrude",         "keys": [[KEY_E, 0, 0, 1]] },
-	"op_inset":        { "label": "Mesh Op: Inset",           "keys": [[KEY_I, 0, 0, 1]] },
-	"op_bevel":        { "label": "Mesh Op: Bevel / Chamfer", "keys": [[KEY_B, 1, 0, 0]] },
+	"op_extrude":      { "label": "Mesh Op: Extrude",         "keys": [[KEY_E, 0, 0, 0]] },
+	"op_inset":        { "label": "Mesh Op: Inset",           "keys": [[KEY_I, 0, 0, 0]] },
+	"op_bevel":        { "label": "Mesh Op: Bevel / Chamfer", "keys": [[KEY_B, 0, 0, 0]] },
 	"op_loop_cut":     { "label": "Mesh Op: Insert Edge Loop", "keys": [[KEY_R, 1, 0, 0]] },
 	"op_merge":        { "label": "Mesh Op: Merge Faces",     "keys": [] },
-	"op_subdivide":    { "label": "Mesh Op: Subdivide Faces", "keys": [] },
+	"op_subdivide":    { "label": "Mesh Op: Subdivide Faces", "keys": [[KEY_D, 0, 0, 0]] },
 	"op_weld":         { "label": "Mesh Op: Merge Vertices",  "keys": [[KEY_M, 0, 0, 0]] },
 	"op_detach":       { "label": "Mesh Op: Detach Faces",    "keys": [] },
 	"op_delete":       { "label": "Mesh Op: Delete Selection", "keys": [[KEY_X, 0, 0, 0]] },
@@ -97,7 +97,7 @@ const ACTIONS: Dictionary = {
 	# Smoothing Groups & Normals
 	"smooth_auto":          { "label": "Normals: Auto-Smooth Mesh (45 deg)","keys": [] },
 	# Dedicated Tools
-	"tool_sprite":     { "label": "Tool: Place Billboard / Sprite", "keys": [[KEY_B, 0, 0, 0]] },
+	"tool_sprite":     { "label": "Tool: Place Billboard / Sprite", "keys": [[KEY_B, 0, 1, 0]] },
 	# Environment / Time of Day
 	"env_dawn":        { "label": "Environment: Dawn", "keys": [] },
 	"env_day":         { "label": "Environment: Day", "keys": [] },

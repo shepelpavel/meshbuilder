@@ -1882,9 +1882,12 @@ func _on_operation_requested(op_name: String) -> void:
 			var edge_ids := _edge_ids_for_op(mesh_data)
 			result = MBMeshOps.fill_hole(mesh_data, edge_ids)
 		"bevel_edges":
+			var is_vertex_bevel := editor.select_mode == MBEditor.SelectMode.VERTEX
 			var is_face_bevel := false
 			var edge_ids: PackedInt32Array
-			if editor.select_mode == MBEditor.SelectMode.FACE:
+			if is_vertex_bevel:
+				pass
+			elif editor.select_mode == MBEditor.SelectMode.FACE:
 				if selection.selected_faces.size() == mesh_data.faces.size():
 					edge_ids = MBMeshOps.face_edges_common_ids(mesh_data, selection.selected_faces)
 				else:
@@ -1893,7 +1896,9 @@ func _on_operation_requested(op_name: String) -> void:
 				edge_ids = _edge_ids_for_op(mesh_data)
 
 
-			if not is_face_bevel and edge_ids.is_empty():
+			if is_vertex_bevel and selection.selected_vertices.is_empty():
+				return
+			if not is_vertex_bevel and not is_face_bevel and edge_ids.is_empty():
 				return
 			if is_face_bevel and selection.selected_faces.is_empty():
 				return
@@ -1930,14 +1935,16 @@ func _on_operation_requested(op_name: String) -> void:
 				edges_to_bevel = selection.selected_edges.duplicate()
 
 
-			if is_face_bevel:
+			if is_vertex_bevel:
+				result = MBMeshOps.bevel_vertices(mesh_data, selection.selected_vertices.duplicate(), eff_amount)
+			elif is_face_bevel:
 				result = MBMeshOps.bevel_faces(mesh_data, faces_to_bevel, eff_amount, op_bevel_segments)
 			else:
 				result = MBMeshOps.bevel_edges(mesh_data, edge_ids, eff_amount, op_bevel_segments)
 
 			if result.get("ok", false):
 				if tool_overlay != null:
-					_start_bevel_modal(mesh, is_face_bevel, faces_to_bevel, edges_to_bevel, float(result.get("max_amount", shortest_l)), eff_amount, result.get("new_face_ids", PackedInt32Array()), pre_snapshot)
+					_start_bevel_modal(mesh, is_face_bevel, faces_to_bevel, edges_to_bevel, float(result.get("max_amount", shortest_l)), eff_amount, result.get("new_face_ids", PackedInt32Array()), pre_snapshot, is_vertex_bevel, selection.selected_vertices.duplicate() if is_vertex_bevel else PackedInt32Array())
 					return
 				_finish_mesh_op(mesh, op_name, int(result.get("new_face_ids", PackedInt32Array()).size()), result.get("new_face_ids", PackedInt32Array()))
 		_:
@@ -2428,6 +2435,8 @@ var _bevel_session_node: MBMesh = null
 var _bevel_session_snapshot: MBMeshData = null
 var _bevel_session_mode: MBEditor.SelectMode = MBEditor.SelectMode.OBJECT
 var _bevel_session_is_face_bevel: bool = false
+var _bevel_session_is_vertex: bool = false
+var _bevel_session_vertices: PackedInt32Array = PackedInt32Array()
 var _bevel_session_faces: PackedInt32Array = PackedInt32Array()
 var _bevel_session_edges: Array[MBEdge] = []
 var _bevel_session_last_new_faces: PackedInt32Array = PackedInt32Array()
@@ -3963,11 +3972,14 @@ func _on_params_canceled() -> void:
 		tool_overlay.close_params()
 	_params_dispatch_underway = false
 
-func _start_bevel_modal(mesh: MBMesh, is_face_bevel: bool, faces: PackedInt32Array, edges: Array[MBEdge], max_amount: float, eff_amount: float, new_face_ids: PackedInt32Array, pre_snapshot: MBMeshData) -> void:
+func _start_bevel_modal(mesh: MBMesh, is_face_bevel: bool, faces: PackedInt32Array, edges: Array[MBEdge], max_amount: float, eff_amount: float, new_face_ids: PackedInt32Array, pre_snapshot: MBMeshData,
+		is_vertex_bevel: bool = false, vertices: PackedInt32Array = PackedInt32Array()) -> void:
 	_params_session_kind = "bevel"
 	_bevel_session_node = mesh
 	_bevel_session_snapshot = pre_snapshot
 	_bevel_session_is_face_bevel = is_face_bevel
+	_bevel_session_is_vertex = is_vertex_bevel
+	_bevel_session_vertices = vertices
 	_bevel_session_faces = faces
 	_bevel_session_edges = edges
 	_bevel_session_mode = editor.select_mode
@@ -3992,7 +4004,9 @@ func _update_bevel_preview() -> void:
 	var mesh_data := _bevel_session_node.mb_mesh_data
 	MBCommand.restore_mesh_data(mesh_data, _bevel_session_snapshot)
 	var result: Dictionary
-	if _bevel_session_is_face_bevel:
+	if _bevel_session_is_vertex:
+		result = MBMeshOps.bevel_vertices(mesh_data, _bevel_session_vertices, op_bevel_amount)
+	elif _bevel_session_is_face_bevel:
 		result = MBMeshOps.bevel_faces(mesh_data, _bevel_session_faces, op_bevel_amount, op_bevel_segments)
 	else:
 		var edge_ids := MBMeshOps.common_edge_ids(mesh_data, _bevel_session_edges)
@@ -4026,6 +4040,8 @@ func _commit_bevel_session() -> void:
 	_bevel_session_faces = PackedInt32Array()
 	_bevel_session_edges = []
 	_bevel_session_last_new_faces = PackedInt32Array()
+	_bevel_session_is_vertex = false
+	_bevel_session_vertices = PackedInt32Array()
 
 	var cmd := CmdMeshOp.new(data, "Bevel", node)
 	cmd.before = before
@@ -4071,6 +4087,8 @@ func _cancel_bevel_session() -> void:
 	_bevel_session_faces = PackedInt32Array()
 	_bevel_session_edges = []
 	_bevel_session_last_new_faces = PackedInt32Array()
+	_bevel_session_is_vertex = false
+	_bevel_session_vertices = PackedInt32Array()
 	if node != null and is_instance_valid(node) and snapshot != null:
 		MBCommand.restore_mesh_data(node.mb_mesh_data, snapshot)
 		node.rebuild()

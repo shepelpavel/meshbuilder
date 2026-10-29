@@ -563,7 +563,8 @@ func _on_selection_info_changed(_arg = null) -> void:
 		_op_buttons["inset_faces"].disabled = not (in_face and faces_selected)
 	if _op_buttons.has("bevel_edges"):
 		_op_buttons["bevel_edges"].disabled = not (in_edge and edges_selected) \
-			and not (in_face and faces_selected)
+			and not (in_face and faces_selected) \
+			and not (in_vertex and verts_selected)
 	if _op_buttons.has("bridge_edges"):
 		_op_buttons["bridge_edges"].disabled = not (in_edge and edges_selected)
 	if _op_buttons.has("connect_edges"):

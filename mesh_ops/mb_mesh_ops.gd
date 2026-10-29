@@ -451,6 +451,170 @@ static func _faces_with_segment(mesh_data: MBMeshData, p0: Vector3, p1: Vector3)
 				break
 	return out
 
+## Bevels selected vertices: every face touching a vertex gets its corner cut
+## back along both incident edges, and the cut points close into a new corner
+## face. Cut distance never exceeds 49% of the shortest incident edge.
+static func bevel_vertices(mesh_data: MBMeshData, vertex_ids: PackedInt32Array, amount: float) -> Dictionary:
+	if mesh_data == null or mesh_data.faces.is_empty():
+		return _fail("Bevel vertices: no mesh data")
+	if vertex_ids.is_empty():
+		return _fail("Bevel vertices: no vertices selected")
+	if amount <= 0.0001:
+		return _fail("Bevel vertices: zero amount")
+	var targets: Array[Vector3] = []
+	for vid in vertex_ids:
+		if vid < 0 or vid >= mesh_data.shared_vertices.size():
+			continue
+		var sv: MBSharedVertex = mesh_data.shared_vertices[vid]
+		if sv == null or sv.indices.is_empty():
+			continue
+		targets.append(mesh_data.positions[sv.indices[0]])
+	var beveled := 0
+	for target in targets:
+		var sv := _group_at_position(mesh_data, target)
+		if sv == null:
+			continue
+		if _bevel_one_vertex(mesh_data, sv, amount):
+			beveled += 1
+	if beveled == 0:
+		return _fail("Bevel vertices: nothing to bevel")
+	return {"ok": true, "new_face_ids": PackedInt32Array(), "beveled_vertices": beveled}
+
+static func _group_at_position(mesh_data: MBMeshData, at: Vector3) -> MBSharedVertex:
+	for sv in mesh_data.shared_vertices:
+		if sv == null or sv.indices.is_empty():
+			continue
+		var first: int = sv.indices[0]
+		if first >= 0 and first < mesh_data.positions.size() and mesh_data.positions[first].distance_to(at) < 0.0001:
+			return sv
+	return null
+
+static func _bevel_one_vertex(mesh_data: MBMeshData, sv: MBSharedVertex, amount: float) -> bool:
+	var pos_set := {}
+	for idx in sv.indices:
+		pos_set[idx] = true
+	var v_pos: Vector3 = mesh_data.positions[sv.indices[0]]
+	var lookup := mesh_data.get_shared_vertex_lookup()
+
+	# Faces carry triangle lists; the polygon ring comes from the outline.
+	var entries: Array = []
+	var v_normal := Vector3.ZERO
+	for fi in range(mesh_data.faces.size()):
+		var face := mesh_data.faces[fi]
+		var outline := face.get_outline_indexes()
+		if outline.size() < 3:
+			continue
+		var hit := -1
+		for i in outline.size():
+			if pos_set.has(outline[i]):
+				hit = i
+				break
+		if hit < 0:
+			continue
+		var f_normal := _face_area_normal(mesh_data, face)
+		entries.append([fi, outline, hit, f_normal, face.submesh_index])
+		v_normal += f_normal
+	if entries.size() < 2:
+		return false
+	if v_normal.length_squared() < 0.0000001:
+		return false
+	v_normal = v_normal.normalized()
+
+	var min_len := INF
+	for e in entries:
+		var outline: PackedInt32Array = e[1]
+		var i: int = e[2]
+		var n := outline.size()
+		for off in [-1, 1]:
+			var j: int = (i + off + n) % n
+			min_len = minf(min_len, v_pos.distance_to(mesh_data.positions[outline[j]]))
+	if not is_finite(min_len) or min_len <= 0.0001:
+		return false
+	var cut: float = minf(amount, min_len * 0.49)
+
+	var cache := {}
+	var rebuilt := {}
+	var ring := {}
+	for e in entries:
+		var outline: PackedInt32Array = e[1]
+		var i: int = e[2]
+		var n := outline.size()
+		var prev_i: int = outline[(i - 1 + n) % n]
+		var next_i: int = outline[(i + 1) % n]
+		var prev_cut := _cut_position(mesh_data, v_pos, mesh_data.positions[prev_i], cut, prev_i, cache, lookup)
+		var next_cut := _cut_position(mesh_data, v_pos, mesh_data.positions[next_i], cut, next_i, cache, lookup)
+		var poly := PackedInt32Array()
+		for j in n:
+			if j == i:
+				poly.append(prev_cut)
+				poly.append(next_cut)
+			else:
+				poly.append(outline[j])
+		rebuilt[int(e[0])] = [poly, e[3], e[4]]
+		ring[prev_cut] = true
+		ring[next_cut] = true
+	if ring.size() < 3:
+		return false
+
+	var basis := MBUv.get_planar_basis(v_normal)
+	var u_axis: Vector3 = basis["u"]
+	var v_axis: Vector3 = basis["v"]
+	var ordered: Array = ring.keys()
+	var angles := {}
+	for idx in ordered:
+		angles[idx] = _corner_angle(mesh_data, int(idx), v_pos, u_axis, v_axis)
+	ordered.sort_custom(func(a, b): return float(angles[a]) < float(angles[b]))
+
+	var corner_idx := PackedInt32Array()
+	var corner_pts := PackedVector3Array()
+	for idx in ordered:
+		corner_idx.append(int(idx))
+		corner_pts.append(mesh_data.positions[int(idx)])
+	var corner := _build_polygon_face_with_normal(mesh_data, corner_pts, corner_idx, v_normal, int(entries[0][4]))
+	if corner == null:
+		return false
+
+	var new_faces: Array[MBFace] = []
+	for fi in range(mesh_data.faces.size()):
+		if not rebuilt.has(fi):
+			new_faces.append(mesh_data.faces[fi])
+			continue
+		var info: Array = rebuilt[fi]
+		var poly: PackedInt32Array = info[0]
+		var pts := PackedVector3Array()
+		for idx in poly:
+			pts.append(mesh_data.positions[idx])
+		var rebuilt_face := _build_polygon_face_with_normal(mesh_data, pts, poly, info[1], int(info[2]))
+		if rebuilt_face == null:
+			new_faces.append(mesh_data.faces[fi])
+			continue
+		new_faces.append(rebuilt_face)
+	new_faces.append(corner)
+	mesh_data.faces = new_faces
+	_rebuild_topology(mesh_data)
+	return true
+
+## Cut point on the edge vertex->neighbour, shared by every face using that
+## edge (keyed by the neighbour's weld group).
+static func _cut_position(mesh_data: MBMeshData, v_pos: Vector3, neighbour: Vector3,
+		cut: float, src: int, cache: Dictionary, lookup: Dictionary) -> int:
+	var key: int = lookup.get(src, src)
+	if cache.has(key):
+		return int(cache[key])
+	var dir := neighbour - v_pos
+	if dir.length_squared() < 0.0000001:
+		return src
+	var at := v_pos + dir.normalized() * cut
+	var index := _dup_position_at(mesh_data, at, src)
+	cache[key] = index
+	return index
+
+static func _corner_angle(mesh_data: MBMeshData, index: int, v_pos: Vector3, u_axis: Vector3, v_axis: Vector3) -> float:
+	if index < 0 or index >= mesh_data.positions.size():
+		return 0.0
+	var p: Vector3 = mesh_data.positions[index] - v_pos
+	return atan2(v_axis.dot(p), u_axis.dot(p))
+
 ## Removes the selected faces from `mesh_data` and returns them as a new
 ## MBMeshData (positions/attributes copied, welds rebuilt).
 static func detach_faces(mesh_data: MBMeshData, face_ids: PackedInt32Array) -> Dictionary:
