@@ -404,8 +404,8 @@ func _mount_toolbar_in_bottom_panel() -> void:
 	# instead of squeezing the viewport-sized toolbar into the panel width.
 	var scroller := ScrollContainer.new()
 	scroller.name = "ToolbarScroll"
-	scroller.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-	scroller.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroller.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroller.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	scroller.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroller.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroller.add_child(toolbar)
@@ -416,9 +416,7 @@ func _mount_toolbar_in_bottom_panel() -> void:
 	_toolbar_bottom_button = add_control_to_bottom_panel(host, "MeshBuilder")
 	if _toolbar_bottom_button != null:
 		_toolbar_bottom_button.tooltip_text = "MeshBuilder: инструменты моделинга"
-	var editor_interface := get_editor_interface()
-	if editor_interface != null and editor_interface.has_method("make_bottom_panel_item_visible"):
-		editor_interface.call_deferred("make_bottom_panel_item_visible", host)
+	make_bottom_panel_item_visible.call_deferred(host)
 	logger.info("plugin", "Toolbar mounted in the bottom panel")
 
 ## Finds the Node3DEditor that owns the 3D viewports, by walking the editor's
@@ -1533,10 +1531,8 @@ func _on_display_reset() -> void:
 func focus_material_dock() -> void:
 	if material_dock == null:
 		return
-	var editor_interface := get_editor_interface()
-	if _material_panel != null and Engine.is_editor_hint() and editor_interface != null \
-			and editor_interface.has_method("make_bottom_panel_item_visible"):
-		editor_interface.call("make_bottom_panel_item_visible", _material_panel)
+	if _material_panel != null and Engine.is_editor_hint():
+		make_bottom_panel_item_visible(_material_panel)
 	material_dock.show()
 	material_dock.sync_selection()
 
