@@ -6,34 +6,34 @@ class_name MeshBuilderPlugin
 # Core Systems
 # ==============================================================================
 
-var logger: PBLogger = PBLogger.new()
-var editor: PBEditor = PBEditor.new()
-var gizmo_plugin: PBGizmoPlugin = PBGizmoPlugin.new()
-var tool_bridge: PBToolBridge = PBToolBridge.new()
+var logger: MBLogger = MBLogger.new()
+var editor: MBEditor = MBEditor.new()
+var gizmo_plugin: MBGizmoPlugin = MBGizmoPlugin.new()
+var tool_bridge: MBToolBridge = MBToolBridge.new()
 
 ## The plugin's own grid/snapping state (independent of the editor's 3D
 ## grid): element drags, the extrude gesture, and shape creation snap to it;
 ## `draw_on_grid` routes creation onto the grid plane at the grid elevation.
-var grid: PBGrid = PBGrid.new()
+var grid: MBGrid = MBGrid.new()
 
 ## Live EditorSettings instance (null in headless test runs) — shortcut
 ## rebinds and grid persistence go through it.
 var _settings: Object = null
 
-## The viewport-rendered cyan grid (PBGridView injects a line mesh into the
+## The viewport-rendered cyan grid (MBGridView injects a line mesh into the
 ## editor's 3D SubViewport; it never pollutes the edited scene).
-var grid_view: PBGridView = PBGridView.new(grid)
+var grid_view: MBGridView = MBGridView.new(grid)
 
 ## Shape creation and interactive polygon drawing controllers
-var shape_creator: PBShapeCreator = PBShapeCreator.new()
-var ngon_drawer: PBNgonDrawer = PBNgonDrawer.new()
-var sprite_placer: PBSpritePlacer = PBSpritePlacer.new()
+var shape_creator: MBShapeCreator = MBShapeCreator.new()
+var ngon_drawer: MBNgonDrawer = MBNgonDrawer.new()
+var sprite_placer: MBSpritePlacer = MBSpritePlacer.new()
 ## Trim Walls session: click wall faces, live preview, one committed object.
-var trim_walls_tool: PBTrimWallsTool = PBTrimWallsTool.new()
+var trim_walls_tool: MBTrimWallsTool = MBTrimWallsTool.new()
 ## The preview node shown while a Trim Walls session is armed (world-space
 ## data, node transform stays identity). Owned by the plugin like the
 ## shape-creation preview.
-var _trim_walls_preview: PBMesh = null
+var _trim_walls_preview: MBMesh = null
 var _trim_walls_last_click_msec: int = -10000
 var _trim_walls_last_click_pos: Vector2 = Vector2.ZERO
 
@@ -41,16 +41,16 @@ var _trim_walls_last_click_pos: Vector2 = Vector2.ZERO
 # UI Components
 # ==============================================================================
 
-var tool_overlay: PBToolOverlay
-var toolbar: PBToolbar
-var material_dock: PBMaterialDock = null
-var uv_editor_panel: PBUvEditorPanel = null
+var tool_overlay: MBToolOverlay
+var toolbar: MBToolbar
+var material_dock: MBMaterialDock = null
+var uv_editor_panel: MBUvEditorPanel = null
 var _uv_bottom_button: Button = null
-var material_drop_overlay: PBMaterialDropOverlay = null
+var material_drop_overlay: MBMaterialDropOverlay = null
 var _cursor_extents_label: Label = null
 ## Top-center hint banner over the 3D scene (paint / stamp / sprite / shape
 ## modes and their exit route). Pure readout, never consumes input.
-var mode_banner: PBModeBanner = null
+var mode_banner: MBModeBanner = null
 ## The shape the Shapes dock tab keeps armed (re-armed after every placement).
 var _shape_mode_shape: StringName = &"cube"
 ## Hover id already reflected in the last gizmo redraw (avoids redundant
@@ -84,13 +84,13 @@ var _toolbar_anchor: Control = null
 func _get_plugin_name() -> String:
 	return "MeshBuilder"
 
-const VERSION := "0.1.0"
+const VERSION := "0.1.1"
 
 func _enter_tree():
 	logger.info("plugin", "MeshBuilder v%s entering tree" % VERSION)
 
 	# Receive 3D viewport input even with NOTHING selected: shape creation is
-	# armed from the New Shape menu and must work before any PBMesh is in the
+	# armed from the New Shape menu and must work before any MBMesh is in the
 	# editing context (the engine otherwise only forwards viewport input to
 	# plugins whose _handles() matches the currently edited object).
 	set_input_event_forwarding_always_enabled()
@@ -119,7 +119,7 @@ func _enter_tree():
 	# live in Editor Settings → Shortcuts like native editor commands) and
 	# load the persisted grid settings.
 	_settings = get_editor_interface().get_editor_settings()
-	PBActions.register(_settings, logger)
+	MBActions.register(_settings, logger)
 	_load_grid_settings()
 	grid.changed.connect(_on_grid_changed)
 	grid_view.logger = logger
@@ -138,10 +138,10 @@ func _enter_tree():
 
 	# Register custom type
 	add_custom_type(
-		"PBMesh",
+		"MBMesh",
 		"MeshInstance3D",
-		preload("res://addons/meshbuilder/core/pb_mesh.gd"),
-		preload("res://addons/meshbuilder/icons/pb_mesh_icon.svg") if FileAccess.file_exists("res://addons/meshbuilder/icons/pb_mesh_icon.svg") else null
+		preload("res://addons/meshbuilder/core/mb_mesh.gd"),
+		preload("res://addons/meshbuilder/icons/mb_mesh_icon.svg") if FileAccess.file_exists("res://addons/meshbuilder/icons/mb_mesh_icon.svg") else null
 	)
 
 	# Register the node gizmo plugin — this is the native editor integration:
@@ -150,7 +150,7 @@ func _enter_tree():
 	add_node_3d_gizmo_plugin(gizmo_plugin)
 
 	# Persistent toolbar row UNDER the 3D scene toolbar (not inside it)
-	toolbar = PBToolbar.new()
+	toolbar = MBToolbar.new()
 	toolbar.editor = editor
 	toolbar.set_editing_active(false)
 	toolbar.shape_requested.connect(_on_shape_requested)
@@ -193,8 +193,8 @@ func _enter_tree():
 	_add_toolbar_row_below_3d_toolbar()
 	toolbar.sync_grid(grid)
 	# Tool overlay panel floating in the 3D viewport (readouts + params
-	# modal; logging goes to the Godot console via PBLogger).
-	tool_overlay = PBToolOverlay.new()
+	# modal; logging goes to the Godot console via MBLogger).
+	tool_overlay = MBToolOverlay.new()
 	tool_overlay.editor = editor
 	tool_overlay.element_editor = gizmo_plugin.element_editor
 	tool_overlay.visible = false
@@ -223,15 +223,15 @@ func _enter_tree():
 	_cursor_extents_label.z_index = 100
 	_add_overlay_to_3d_viewport(_cursor_extents_label)
 	# Top-center mode banner (paint / stamp / sprite / shape mode readout)
-	mode_banner = PBModeBanner.new()
+	mode_banner = MBModeBanner.new()
 	mode_banner.z_index = 90
 	_add_overlay_to_3d_viewport(mode_banner)
 	# Material drag-and-drop overlay in the 3D viewport
-	material_drop_overlay = PBMaterialDropOverlay.new()
+	material_drop_overlay = MBMaterialDropOverlay.new()
 	material_drop_overlay.plugin = self
 	_add_overlay_to_3d_viewport(material_drop_overlay)
 	# Material & UV Dock panel (DOCK_SLOT_RIGHT_UL)
-	material_dock = PBMaterialDock.new()
+	material_dock = MBMaterialDock.new()
 	material_dock.plugin = self
 	material_dock.editor = editor
 	material_dock.visible = true
@@ -239,7 +239,7 @@ func _enter_tree():
 	material_dock.dock_mode_changed.connect(_on_dock_mode_changed)
 	add_control_to_dock(DOCK_SLOT_RIGHT_UL, material_dock)
 	# Dedicated 2D UV Editor Panel (Bottom dock)
-	uv_editor_panel = PBUvEditorPanel.new()
+	uv_editor_panel = MBUvEditorPanel.new()
 	uv_editor_panel.editor = editor
 	uv_editor_panel.plugin = self
 	if Engine.is_editor_hint():
@@ -356,7 +356,7 @@ func _exit_tree():
 			_cursor_extents_label.queue_free()
 		_cursor_extents_label = null
 	# Remove custom type
-	remove_custom_type("PBMesh")
+	remove_custom_type("MBMesh")
 	if grid_view != null:
 		grid_view.detach_scenario()
 
@@ -383,7 +383,7 @@ func toolbar_has_3d_editor() -> bool:
 ## full-width row and push the viewports down, whatever the version.
 func _add_toolbar_row_below_3d_toolbar() -> void:
 	_toolbar_anchor = Control.new()
-	_toolbar_anchor.name = "PBToolbarAnchor"
+	_toolbar_anchor.name = "MBToolbarAnchor"
 	add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar_anchor)
 
 	var flow: Node = _find_ancestor_of_class(_toolbar_anchor, "HFlowContainer")
@@ -440,12 +440,12 @@ func _find_ancestor_of_class(node: Node, klass: String) -> Node:
 # ==============================================================================
 
 func _handles(object: Object) -> bool:
-	return object is PBMesh
+	return object is MBMesh
 
 func _edit(object: Object) -> void:
-	if object is PBMesh:
-		editor.active_mesh = object as PBMesh
-	# A non-PBMesh primary (mixed selection, plain GLB mesh) does NOT clear the
+	if object is MBMesh:
+		editor.active_mesh = object as MBMesh
+	# A non-MBMesh primary (mixed selection, plain GLB mesh) does NOT clear the
 	# active mesh here — _on_selection_changed owns that decision and runs after
 	# this (the engine's selection_changed signal is deferred), so clearing
 	# would only race the authoritative update.
@@ -461,7 +461,7 @@ func _make_visible(visible: bool) -> void:
 ## broke gizmo drags in earlier rounds.
 func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 	# Feed the live cursor to the element editor — the extrude gesture drives
-	# the cap distance from the mouse (see PBElementEditor.track_mouse).
+	# the cap distance from the mouse (see MBElementEditor.track_mouse).
 	if event is InputEventMouseMotion:
 		gizmo_plugin.element_editor.track_mouse(camera, event.position)
 
@@ -533,13 +533,13 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 	if event is InputEventMouseMotion and event.button_mask == 0 \
 			and not gizmo_plugin.element_editor.drag_active:
 		var node := editor.active_mesh
-		if node != null and node.pb_mesh_data != null:
+		if node != null and node.mb_mesh_data != null:
 			_last_mouse_pos = event.position
 			_last_mouse_camera = camera
 			# Hover must never re-record the pick-side face (the element gizmo
 			# stays locked to the side it was selected from).
 			var id: int = gizmo_plugin.element_editor.pick_ray(
-				node.pb_mesh_data, node.global_transform, camera, event.position, false)
+				node.mb_mesh_data, node.global_transform, camera, event.position, false)
 			editor.hover_id = id
 			if editor.hover_id != _hover_drawn_last:
 				_hover_drawn_last = editor.hover_id
@@ -555,36 +555,36 @@ func _handle_action_key(key_event: InputEventKey) -> int:
 	var grid_result := _handle_grid_action_key(key_event)
 	if grid_result == AFTER_GUI_INPUT_STOP:
 		return AFTER_GUI_INPUT_STOP
-	var action := PBActions.action_for(key_event, _settings)
+	var action := MBActions.action_for(key_event, _settings)
 	if action == &"":
 		return AFTER_GUI_INPUT_PASS
 	var editing := editor.is_editing()
 	var sp_active := sprite_placer != null and sprite_placer.is_active()
-	var pb_context := editing or editor.active_mesh != null or shape_creator.is_active() or ngon_drawer.is_active() or sp_active
+	var mb_context := editing or editor.active_mesh != null or shape_creator.is_active() or ngon_drawer.is_active() or sp_active
 	match action:
 		# Selection modes need a MeshBuilder context (if we consumed H/J/K with
 		# nothing MeshBuilder-related active, scene-tree search fields would
 		# lose the letters to a no-op).
 		&"select_vertex":
-			if not pb_context:
+			if not mb_context:
 				return AFTER_GUI_INPUT_PASS
-			editor.select_mode = PBEditor.SelectMode.VERTEX
+			editor.select_mode = MBEditor.SelectMode.VERTEX
 		&"select_edge":
-			if not pb_context:
+			if not mb_context:
 				return AFTER_GUI_INPUT_PASS
-			editor.select_mode = PBEditor.SelectMode.EDGE
+			editor.select_mode = MBEditor.SelectMode.EDGE
 		&"select_face":
-			if not pb_context:
+			if not mb_context:
 				return AFTER_GUI_INPUT_PASS
-			editor.select_mode = PBEditor.SelectMode.FACE
+			editor.select_mode = MBEditor.SelectMode.FACE
 		&"select_texture":
-			if not pb_context:
+			if not mb_context:
 				return AFTER_GUI_INPUT_PASS
-			editor.select_mode = PBEditor.SelectMode.TEXTURE
+			editor.select_mode = MBEditor.SelectMode.TEXTURE
 		&"select_object":
-			if not pb_context:
+			if not mb_context:
 				return AFTER_GUI_INPUT_PASS
-			editor.select_mode = PBEditor.SelectMode.OBJECT
+			editor.select_mode = MBEditor.SelectMode.OBJECT
 		&"cycle_space":
 			if not editing:
 				return AFTER_GUI_INPUT_PASS
@@ -657,9 +657,9 @@ func _handle_action_key(key_event: InputEventKey) -> int:
 		_:
 			# Mesh operation keys route into the toolbar ops pipeline; the
 			# op itself validates the selection context.
-			if not editing or not PBActions.OP_ACTION_TO_OPERATION.has(action):
+			if not editing or not MBActions.OP_ACTION_TO_OPERATION.has(action):
 				return AFTER_GUI_INPUT_PASS
-			_on_operation_requested(PBActions.OP_ACTION_TO_OPERATION[action])
+			_on_operation_requested(MBActions.OP_ACTION_TO_OPERATION[action])
 	return AFTER_GUI_INPUT_STOP
 
 ## Grid + snap toggles work in EVERY context (nothing selected, mid-drag of
@@ -667,7 +667,7 @@ func _handle_action_key(key_event: InputEventKey) -> int:
 ## use. toggle_snap is the exception: with no MeshBuilder context at all the
 ## engine's own Use Snap button keeps its Y binding.
 func _handle_grid_action_key(key_event: InputEventKey) -> int:
-	var action := PBActions.action_for(key_event, _settings)
+	var action := MBActions.action_for(key_event, _settings)
 	if action == &"":
 		return AFTER_GUI_INPUT_PASS
 	if action == &"toggle_snap":
@@ -707,7 +707,7 @@ func _handle_grid_action_key(key_event: InputEventKey) -> int:
 		return AFTER_GUI_INPUT_PASS
 	return AFTER_GUI_INPUT_STOP
 func _is_repeatable_grid_key(k: InputEventKey) -> bool:
-	var act := PBActions.action_for(k, _settings)
+	var act := MBActions.action_for(k, _settings)
 	return act == &"grid_raise" or act == &"grid_lower"
 
 
@@ -746,7 +746,7 @@ func _on_grid_changed() -> void:
 			str(grid.draw_on_grid), str(grid.show_grid), str(grid.origin.y),
 			str(grid.rotate_step_deg)])
 	grid_view.mark_dirty()
-	# Object-mode engine snap tracks live grid changes while a PBMesh is
+	# Object-mode engine snap tracks live grid changes while a MBMesh is
 	# selected (element modes never use it — see _update_editing_context).
 	if editor.active_mesh != null and not editor.is_editing():
 		tool_bridge.apply_engine_snap(grid.step(), grid.rotate_step_deg, grid.enabled)
@@ -758,21 +758,21 @@ func _on_snap_selection_to_grid() -> void:
 	if not editor.is_editing() or editor.active_mesh == null:
 		return
 	var mesh := editor.active_mesh
-	var mesh_data: PBMeshData = mesh.pb_mesh_data
+	var mesh_data: MBMeshData = mesh.mb_mesh_data
 	if mesh_data == null:
 		return
 	var indices := PackedInt32Array()
 	match editor.select_mode:
-		PBEditor.SelectMode.VERTEX:
+		MBEditor.SelectMode.VERTEX:
 			for group_idx in editor.selection.selected_vertices:
 				if group_idx >= 0 and group_idx < mesh_data.shared_vertices.size():
-					var sv: PBSharedVertex = mesh_data.shared_vertices[group_idx]
+					var sv: MBSharedVertex = mesh_data.shared_vertices[group_idx]
 					if sv != null:
 						for idx: int in sv.indices:
 							indices.append(idx)
-		PBEditor.SelectMode.EDGE:
+		MBEditor.SelectMode.EDGE:
 			indices = mesh_data.get_coincident_vertices_from_edges(editor.selection.selected_edges)
-		PBEditor.SelectMode.FACE, PBEditor.SelectMode.TEXTURE:
+		MBEditor.SelectMode.FACE, MBEditor.SelectMode.TEXTURE:
 			indices = mesh_data.get_coincident_vertices_from_faces(editor.selection.selected_faces)
 	if indices.is_empty():
 		return
@@ -808,19 +808,19 @@ func _on_selection_changed() -> void:
 	var selection: EditorSelection = get_editor_interface().get_selection()
 	var nodes: Array[Node] = selection.get_selected_nodes()
 
-	var pb_mesh: PBMesh = null
+	var mb_mesh: MBMesh = null
 	for node in nodes:
-		if node is PBMesh:
-			pb_mesh = node as PBMesh
-	# The LAST PBMesh in the list wins: get_selected_nodes() is in click order,
+		if node is MBMesh:
+			mb_mesh = node as MBMesh
+	# The LAST MBMesh in the list wins: get_selected_nodes() is in click order,
 	# so this is the node the user clicked most recently — the same "primary"
 	# object the engine hands _edit(). (Taking the first used to make a
 	# two-mesh selection edit the OLDER mesh while the gizmo sat on the newer
-	# one.) A mixed selection (PBMesh + plain MeshInstance3D, e.g. while
-	# picking a CSG cutter) keeps the PBMesh active.
-	# Unconditionally update active_mesh: if a non-PBMesh (or nothing) is selected,
+	# one.) A mixed selection (MBMesh + plain MeshInstance3D, e.g. while
+	# picking a CSG cutter) keeps the MBMesh active.
+	# Unconditionally update active_mesh: if a non-MBMesh (or nothing) is selected,
 	# active_mesh becomes null so MeshBuilder mode deactivates cleanly.
-	editor.active_mesh = pb_mesh
+	editor.active_mesh = mb_mesh
 
 	# While an element mode is active the scene selection stays narrowed to
 	# ONE mesh (see _collapse_selection_to_active): ctrl/shift-adding another
@@ -836,11 +836,11 @@ func _on_selection_changed() -> void:
 	# Re-entrant call from _finish_creation_session's own selection
 	# change is a no-op (the session kind is already cleared).
 	if _params_session_kind != "" or (tool_overlay != null and tool_overlay.params_open):
-		if _params_session_kind == "create" and pb_mesh == shape_creator.preview_node:
+		if _params_session_kind == "create" and mb_mesh == shape_creator.preview_node:
 			pass
-		elif _params_session_kind == "bevel" and pb_mesh == _bevel_session_node:
+		elif _params_session_kind == "bevel" and mb_mesh == _bevel_session_node:
 			pass
-		elif _params_session_kind == "edit" and pb_mesh == _params_edit_node:
+		elif _params_session_kind == "edit" and mb_mesh == _params_edit_node:
 			pass
 		elif _params_session_kind == "trim_walls":
 			# A wall-picking session survives selection changes: stray clicks
@@ -857,17 +857,17 @@ func _on_selection_changed() -> void:
 # ==============================================================================
 # Object State Toggles — Lit / Cast Shadows (row 3 + bindable hotkeys)
 # ==============================================================================
-# The toggles apply to EVERY selected object (PBMesh, MeshInstance3D, CSG
+# The toggles apply to EVERY selected object (MBMesh, MeshInstance3D, CSG
 # primitive). Button semantics follow a mixed checkbox: all on = checked,
 # all off = unchecked, mixed = unchecked — checking synchronizes the whole
-# selection. All decisions live in PBObjectState (headless-testable); the
+# selection. All decisions live in MBObjectState (headless-testable); the
 # plugin only wraps the returned records into undo actions.
 
 func _selected_state_nodes() -> Array[GeometryInstance3D]:
 	var selection: EditorSelection = get_editor_interface().get_selection()
 	if selection == null:
 		return []
-	return PBObjectState.applicable_nodes(selection.get_selected_nodes())
+	return MBObjectState.applicable_nodes(selection.get_selected_nodes())
 
 func _update_object_state_buttons() -> void:
 	if toolbar == null:
@@ -877,7 +877,7 @@ func _update_object_state_buttons() -> void:
 		toolbar.sync_object_state(0, 0, false)
 		return
 	toolbar.sync_object_state(
-		PBObjectState.lit_state(nodes), PBObjectState.shadow_state(nodes), true)
+		MBObjectState.lit_state(nodes), MBObjectState.shadow_state(nodes), true)
 
 ## Hotkey semantics: flip the whole selection to the opposite of its
 ## combined state (mixed counts as "lit"/"casting" → all off).
@@ -885,13 +885,13 @@ func _toggle_object_lit() -> void:
 	var nodes := _selected_state_nodes()
 	if nodes.is_empty():
 		return
-	_apply_object_lit(nodes, PBObjectState.lit_state(nodes) != 1)
+	_apply_object_lit(nodes, MBObjectState.lit_state(nodes) != 1)
 
 func _toggle_object_shadow() -> void:
 	var nodes := _selected_state_nodes()
 	if nodes.is_empty():
 		return
-	_apply_object_shadow(nodes, PBObjectState.shadow_state(nodes) != 1)
+	_apply_object_shadow(nodes, MBObjectState.shadow_state(nodes) != 1)
 
 func _on_object_lit_toggled(pressed: bool) -> void:
 	_apply_object_lit(_selected_state_nodes(), pressed)
@@ -902,7 +902,7 @@ func _on_object_shadow_toggled(pressed: bool) -> void:
 func _apply_object_lit(nodes: Array[GeometryInstance3D], lit: bool) -> void:
 	var records: Array[Dictionary] = []
 	for node in nodes:
-		var rec := PBObjectState.set_node_lit(node, lit)
+		var rec := MBObjectState.set_node_lit(node, lit)
 		if not rec.is_empty():
 			records.append(rec)
 	if records.is_empty():
@@ -922,7 +922,7 @@ func _apply_object_lit(nodes: Array[GeometryInstance3D], lit: bool) -> void:
 func _apply_object_shadow(nodes: Array[GeometryInstance3D], cast: bool) -> void:
 	var records: Array[Dictionary] = []
 	for node in nodes:
-		var rec := PBObjectState.set_node_shadow(node, cast)
+		var rec := MBObjectState.set_node_shadow(node, cast)
 		if not rec.is_empty():
 			records.append(rec)
 	if records.is_empty():
@@ -940,21 +940,21 @@ func _apply_object_shadow(nodes: Array[GeometryInstance3D], cast: bool) -> void:
 	if logger:
 		logger.info("tools", "%s shadows on %d object(s)" % ["Cast" if cast else "Removed", records.size()])
 
-## Replays one PBObjectState record; `forward` picks the new/old side.
+## Replays one MBObjectState record; `forward` picks the new/old side.
 func _apply_lit_record(rec: Dictionary, forward: bool) -> void:
 	var node: Node = rec.get("node")
 	if node == null or not is_instance_valid(node):
 		return
 	match rec.get("kind", ""):
 		"pbmesh":
-			var pb := node as PBMesh
-			if pb == null or pb.pb_mesh_data == null:
+			var pb := node as MBMesh
+			if pb == null or pb.mb_mesh_data == null:
 				return
 			var mats: Array = rec.get("new_materials") if forward else rec.get("old_materials")
 			var typed: Array[Material] = []
 			for m in mats:
 				typed.append(m)
-			pb.pb_mesh_data.materials = typed
+			pb.mb_mesh_data.materials = typed
 			pb.rebuild()
 		"surfaces", "override":
 			var mi := node as MeshInstance3D
@@ -982,25 +982,25 @@ func _apply_shadow_record(rec: Dictionary, forward: bool) -> void:
 # Editor State Callbacks
 # ==============================================================================
 
-func _on_active_mesh_changed(mesh: PBMesh) -> void:
+func _on_active_mesh_changed(mesh: MBMesh) -> void:
 	if gizmo_plugin != null and gizmo_plugin.element_editor != null \
 			and gizmo_plugin.element_editor.drag_active:
 		gizmo_plugin.element_editor.commit_subgizmos(editor.active_mesh, PackedInt32Array(), true)
 	if mesh != null:
 		# broken welds make element ids resolve to raw position pairs, which
 		# tears corners apart on drag (the "moved those 2 verts" failure).
-		if mesh.pb_mesh_data != null and mesh.pb_mesh_data.ensure_welds():
+		if mesh.mb_mesh_data != null and mesh.mb_mesh_data.ensure_welds():
 			mesh.rebuild()
 			if logger:
 				logger.warn("editor", "Mesh '%s' had missing weld groups — rebuilt from coincident positions" % mesh.name)
 		if logger:
-			var md: PBMeshData = mesh.pb_mesh_data
+			var md: MBMeshData = mesh.mb_mesh_data
 			if md != null:
 				logger.info("editor", "Mesh '%s': V=%d F=%d weld_groups=%d edges=%d" % [
 					mesh.name, md.positions.size(), md.faces.size(),
 					md.shared_vertices.size(), md.get_common_edges().size()])
 		if gizmo_plugin.gizmo_for_node(mesh) == null:
-			# A gizmo-less PBMesh can never be picked or element-edited (its
+			# A gizmo-less MBMesh can never be picked or element-edited (its
 			# first gizmo request ran before it had an owner). Re-request via
 			# the editor's own deferred group call.
 			get_tree().call_group_flags(SceneTree.GROUP_CALL_DEFERRED,
@@ -1022,34 +1022,34 @@ func _on_active_mesh_changed(mesh: PBMesh) -> void:
 ## Selects the element under the last click position on `mesh` (single-id
 ## subgizmo selection — the engine's script API) so the element gizmo shows
 ## up immediately instead of the whole-object one.
-func _auto_pick_element(mesh: PBMesh) -> void:
+func _auto_pick_element(mesh: MBMesh) -> void:
 	if not editor.is_editing() or editor.active_mesh != mesh:
 		return
 	var gizmo := gizmo_plugin.gizmo_for_node(mesh)
 	var id: int = gizmo_plugin.element_editor.pick_ray(
-		mesh.pb_mesh_data, mesh.global_transform, _last_mouse_camera, _last_mouse_pos)
+		mesh.mb_mesh_data, mesh.global_transform, _last_mouse_camera, _last_mouse_pos)
 	if id >= 0 and gizmo != null:
 		mesh.set_subgizmo_selection(gizmo, id,
-			gizmo_plugin.element_editor.get_subgizmo_transform(mesh.pb_mesh_data, mesh, id))
+			gizmo_plugin.element_editor.get_subgizmo_transform(mesh.mb_mesh_data, mesh, id))
 	mesh.update_gizmos()
 
-func _on_select_mode_changed(_mode: PBEditor.SelectMode) -> void:
+func _on_select_mode_changed(_mode: MBEditor.SelectMode) -> void:
 	if _params_session_kind != "" or (tool_overlay != null and tool_overlay.params_open):
 		_on_params_applied()
 	# ProBuilder parity: switching element modes CONVERTS the selection
 	# (a face becomes its verts, selected verts become the faces they fully
 	# cover, ...). The conversion rides the SAME code path as an ordinary
-	# selection: PBSelection holds the converted ids, one seed id represents
+	# selection: MBSelection holds the converted ids, one seed id represents
 	# the set in the engine's subgizmo selection (single-id script API), and
 	# the element editor's conversion expansion makes drag/highlight/ops
 	# treat it exactly like a hand-picked set. Empty conversions (OBJECT
 	# mode, nothing selected, nothing survives) clear, as before.
 	var source_faces := editor.selection.selected_faces.duplicate()
 	var converted := PackedInt32Array()
-	if editor.active_mesh != null and editor.active_mesh.pb_mesh_data != null \
-			and editor.select_mode != PBEditor.SelectMode.OBJECT:
-		converted = PBSelection.convert_between_modes(
-			editor.active_mesh.pb_mesh_data, _last_select_mode, editor.select_mode,
+	if editor.active_mesh != null and editor.active_mesh.mb_mesh_data != null \
+			and editor.select_mode != MBEditor.SelectMode.OBJECT:
+		converted = MBSelection.convert_between_modes(
+			editor.active_mesh.mb_mesh_data, _last_select_mode, editor.select_mode,
 			editor.selection.selected_vertices, editor.selection.selected_edges,
 			editor.selection.selected_faces)
 	_last_select_mode = editor.select_mode
@@ -1068,15 +1068,15 @@ func _on_select_mode_changed(_mode: PBEditor.SelectMode) -> void:
 	# engine keeps a whole-object transform gizmo on every one of them, and
 	# that multi-node gizmo swallows the element clicks (faces hover but never
 	# select). Entering an element mode therefore narrows the engine
-	# selection to the active PBMesh — object mode stays free for the
+	# selection to the active MBMesh — object mode stays free for the
 	# multi-select workflows (move both, CSG booleans, merge).
-	if editor.select_mode != PBEditor.SelectMode.OBJECT:
+	if editor.select_mode != MBEditor.SelectMode.OBJECT:
 		_collapse_selection_to_active.call_deferred()
 	if material_dock != null:
 		material_dock.sync_selection()
 	_sync_uv_editor_selection()
 
-## Narrows the engine's scene selection to just the active PBMesh (deferred —
+## Narrows the engine's scene selection to just the active MBMesh (deferred —
 ## the engine is still finishing its own selection change when the mode
 ## switch fires). No-op for single/empty selections.
 func _collapse_selection_to_active() -> void:
@@ -1096,40 +1096,40 @@ func _collapse_selection_to_active() -> void:
 ## The element mode the selection currently lives in — the conversion's
 ## SOURCE when the mode changes (select_mode is already the TARGET by the
 ## time this handler runs).
-var _last_select_mode: PBEditor.SelectMode = PBEditor.SelectMode.OBJECT
+var _last_select_mode: MBEditor.SelectMode = MBEditor.SelectMode.OBJECT
 
 ## Materializes an element selection set through the ordinary selection path.
-## PBSelection gets the ids, and ONE seed id (the element nearest the set's
+## MBSelection gets the ids, and ONE seed id (the element nearest the set's
 ## centroid) carries the set in the engine via the conversion expansion —
 ## the seed reports the set's centroid as its pivot so the transform gizmo
 ## lands on the selection's center. `source_faces` (when coming from a face
 ## selection) keeps the gizmo oriented to the face the elements were
 ## selected FROM (ProBuilder pick-side UX). Callers: mode-switch conversion,
 ## bevel Apply (the new band), bridge/fill (the created faces).
-func _apply_selection_set(mesh: PBMesh, ids: PackedInt32Array,
+func _apply_selection_set(mesh: MBMesh, ids: PackedInt32Array,
 		source_faces: PackedInt32Array) -> void:
-	var mesh_data: PBMeshData = mesh.pb_mesh_data
+	var mesh_data: MBMeshData = mesh.mb_mesh_data
 	var ee := gizmo_plugin.element_editor
 	var seed := ee.seed_id_nearest_centroid(mesh_data, ids)
 	if seed < 0:
 		return
 	ee.set_conversion_group(seed, ids)
 	match editor.select_mode:
-		PBEditor.SelectMode.VERTEX:
+		MBEditor.SelectMode.VERTEX:
 			editor.selection.set_vertices(ids)
-		PBEditor.SelectMode.EDGE:
+		MBEditor.SelectMode.EDGE:
 			var common := mesh_data.get_common_edges()
-			var edges: Array[PBEdge] = []
+			var edges: Array[MBEdge] = []
 			for eid in ids:
 				if eid >= 0 and eid < common.size():
 					edges.append(common[eid])
 			editor.selection.set_edges(edges)
-		PBEditor.SelectMode.FACE, PBEditor.SelectMode.TEXTURE:
+		MBEditor.SelectMode.FACE, MBEditor.SelectMode.TEXTURE:
 			editor.selection.set_faces(ids)
 	# Orientation continuity: coming FROM face mode, the seed's gizmo orients
 	# to the nearest source face's normal, not an average over the mesh.
-	if source_faces.size() > 0 and editor.select_mode != PBEditor.SelectMode.FACE \
-			and editor.select_mode != PBEditor.SelectMode.TEXTURE:
+	if source_faces.size() > 0 and editor.select_mode != MBEditor.SelectMode.FACE \
+			and editor.select_mode != MBEditor.SelectMode.TEXTURE:
 		var origin: Vector3 = ee.element_origin(mesh_data, seed)
 		var best := -1
 		var best_dist := INF
@@ -1157,7 +1157,7 @@ func _on_element_selection_changed() -> void:
 		material_dock.sync_selection()
 	_sync_uv_editor_selection()
 
-func _on_orientation_space_changed(_space: PBEditor.OrientationSpace) -> void:
+func _on_orientation_space_changed(_space: MBEditor.OrientationSpace) -> void:
 	# The engine's transform gizmo only adopts a subgizmo's basis while its
 	# own local-coords toggle is on (update_transform_gizmo in the engine
 	# source) — the bridge flips that toggle, and the engine's `toggled`
@@ -1171,7 +1171,7 @@ func _on_orientation_space_changed(_space: PBEditor.OrientationSpace) -> void:
 	if editor.active_mesh != null:
 		editor.active_mesh.update_gizmos()
 
-func _on_tool_mode_changed(_tool: PBEditor.ToolMode) -> void:
+func _on_tool_mode_changed(_tool: MBEditor.ToolMode) -> void:
 	if _params_session_kind != "" or (tool_overlay != null and tool_overlay.params_open):
 		_on_params_applied()
 	_update_engine_tool()
@@ -1184,7 +1184,7 @@ func _on_tool_mode_changed(_tool: PBEditor.ToolMode) -> void:
 ## The user switched the engine tool itself (W/E/R or its toolbar buttons)
 ## while editing — mirror it into the plugin's own tool state.
 func _on_engine_tool_selected(tool: int) -> void:
-	editor.tool_mode = tool as PBEditor.ToolMode
+	editor.tool_mode = tool as MBEditor.ToolMode
 
 ## Applies the plugin editing context to the editor UI: toolbar buttons,
 ## engine tool buttons (universal/select disabled while editing, our tool
@@ -1201,18 +1201,18 @@ func _update_editing_context() -> void:
 			tool_bridge.apply_orientation_space(editor.orientation_space)
 		# Grid jurisdiction swap: inside ANY MeshBuilder context (mesh selected
 		# or shape creation armed) the engine's stock grid hides and our cyan
-		# grid draws (PBGridView); in OBJECT mode the engine's own transform
+		# grid draws (MBGridView); in OBJECT mode the engine's own transform
 		# snap also tracks our grid so node-level drags match element drags.
 		var sc_active := shape_creator != null and shape_creator.is_active()
 		var ng_active := ngon_drawer != null and ngon_drawer.is_active()
 		var sp_active := sprite_placer != null and sprite_placer.is_active()
 		var tw_active := trim_walls_tool != null and trim_walls_tool.is_active()
-		var pb_context := mesh_selected or sc_active or ng_active or sp_active or tw_active or grid.draw_on_grid or absf(grid.origin.y) > 0.0001
+		var mb_context := mesh_selected or sc_active or ng_active or sp_active or tw_active or grid.draw_on_grid or absf(grid.origin.y) > 0.0001
 		var cam3d: Camera3D = null
 		var vp := get_editor_interface().get_editor_viewport_3d(0)
 		if vp != null:
 			cam3d = vp.get_camera_3d()
-		tool_bridge.set_engine_grid_hidden(pb_context, cam3d)
+		tool_bridge.set_engine_grid_hidden(mb_context, cam3d)
 		if not editing and mesh_selected:
 			tool_bridge.apply_engine_snap(grid.step(), grid.rotate_step_deg, grid.enabled)
 		else:
@@ -1224,7 +1224,7 @@ func _update_editing_context() -> void:
 	_update_engine_tool()
 
 ## Grid driver, once per editor frame: the grid is drawn on the ACTIVE
-## node's gizmo (PBGridView caches world-space lines; the camera focus +
+## node's gizmo (MBGridView caches world-space lines; the camera focus +
 ## grid settings gate rebuilds), so a redraw is only requested on real
 ## staleness — gizmo redraws are the native re-render trigger.
 var _grid_drawn_last := false
@@ -1249,12 +1249,12 @@ func _process(delta: float) -> void:
 	if tool_bridge != null and tool_bridge.is_ready():
 		tool_bridge.set_engine_grid_hidden(wants, cam)
 	# ARMED creation cursor: the gizmo path draws the yellow square on a
-	# PBMesh gizmo — which needs a mesh in the scene. With none (fresh
+	# MBMesh gizmo — which needs a mesh in the scene. With none (fresh
 	# import, first shape not yet placed) the grid_view renders the square
 	# scenario-side instead; with a host, the gizmo drew it and this hides.
-	var armed := (shape_creator != null and shape_creator.state == PBShapeCreator.State.ARMED) \
-		or (ngon_drawer != null and ngon_drawer.state == PBNgonDrawer.State.ARMED)
-	var hover_host: PBMesh = gizmo_plugin.creation_hover_node if gizmo_plugin != null else null
+	var armed := (shape_creator != null and shape_creator.state == MBShapeCreator.State.ARMED) \
+		or (ngon_drawer != null and ngon_drawer.state == MBNgonDrawer.State.ARMED)
+	var hover_host: MBMesh = gizmo_plugin.creation_hover_node if gizmo_plugin != null else null
 	var host_drew := hover_host != null and is_instance_valid(hover_host)
 	grid_view.set_creation_cursor(
 		gizmo_plugin.creation_hover_point if gizmo_plugin != null else Vector3.ZERO,
@@ -1265,7 +1265,7 @@ var _gizmo_cam_pos: Dictionary = {}  # instance id -> Vector3
 ## Gizmo strokes and face fills are sized by camera distance (the gizmo
 ## plugin's _live_stroke_offset/_live_fill_offset) and only re-derive on a
 ## redraw, so the nodes that DRAW such overlays are redrawn while the camera
-## moves relative to them. Every PBMesh used to do this from its own
+## moves relative to them. Every MBMesh used to do this from its own
 ## _process — a script call per mesh per frame, in the editor and in shipped
 ## games, for meshes that draw nothing camera-scaled at all.
 func _refresh_camera_scaled_gizmos() -> void:
@@ -1289,16 +1289,16 @@ func _refresh_camera_scaled_gizmos() -> void:
 		for dead in _gizmo_cam_pos.keys().filter(func(k): return not is_instance_id_valid(k)):
 			_gizmo_cam_pos.erase(dead)
 
-## The PBMeshes currently drawing camera-scaled overlays: the selection
+## The MBMeshes currently drawing camera-scaled overlays: the selection
 ## (element highlights), the creation preview and hover host, the n-gon
 ## preview, and the Trim Walls preview / hover / chosen walls.
-func _camera_scaled_gizmo_nodes() -> Array[PBMesh]:
-	var out: Array[PBMesh] = []
+func _camera_scaled_gizmo_nodes() -> Array[MBMesh]:
+	var out: Array[MBMesh] = []
 	var sel := get_editor_interface().get_selection()
 	if sel != null:
 		for n in sel.get_selected_nodes():
-			if n is PBMesh:
-				out.append(n as PBMesh)
+			if n is MBMesh:
+				out.append(n as MBMesh)
 	var extra: Array = []
 	if gizmo_plugin != null:
 		extra.append(gizmo_plugin.creation_hover_node)
@@ -1311,11 +1311,11 @@ func _camera_scaled_gizmo_nodes() -> Array[PBMesh]:
 		extra.append(ngon_drawer.preview_node)
 	extra.append(_trim_walls_preview)
 	for n in extra:
-		if n is PBMesh and is_instance_valid(n) and n.is_inside_tree() and not out.has(n):
-			out.append(n as PBMesh)
+		if n is MBMesh and is_instance_valid(n) and n.is_inside_tree() and not out.has(n):
+			out.append(n as MBMesh)
 	return out
 
-## The grid renders while any MeshBuilder context is active (a PBMesh is
+## The grid renders while any MeshBuilder context is active (a MBMesh is
 ## selected — object mode included — or shape creation is armed, or drawing
 ## on an elevated/custom grid, or grid settings panel is open).
 func show_grid_should_draw() -> bool:
@@ -1444,7 +1444,7 @@ func _on_env_preset_requested(preset_name: String) -> void:
 		return
 
 	var ur = get_undo_redo() if Engine.is_editor_hint() else null
-	var res := PBEnvironment.apply_preset(root, preset_name, ur)
+	var res := MBEnvironment.apply_preset(root, preset_name, ur)
 	var norm_name: String = res.get("preset", preset_name)
 	if toolbar != null:
 		toolbar.set_env_preset(norm_name)
@@ -1454,11 +1454,11 @@ func _on_env_preset_requested(preset_name: String) -> void:
 		logger.info("env", "Applied environment preset '%s'" % norm_name)
 
 func _cycle_env_preset() -> void:
-	var names := PBEnvironment.get_preset_names()
+	var names := MBEnvironment.get_preset_names()
 	var root: Node3D = null
 	if Engine.is_editor_hint():
 		root = EditorInterface.get_edited_scene_root() as Node3D
-	var cur: String = root.get_meta("poi_env_preset", "day") if root != null else "day"
+	var cur: String = root.get_meta("mb_env_preset", "day") if root != null else "day"
 	var idx := names.find(cur)
 	var next_idx := (idx + 1) % names.size()
 	_on_env_preset_requested(names[next_idx])
@@ -1580,30 +1580,30 @@ func _sync_uv_editor_selection() -> void:
 			uv_editor_panel.sync_selection_from_3d(sel_faces)
 
 ## Programmatically selects a subgizmo element (vertex common_idx, common_edge id, or face index) on `mesh`.
-func select_subgizmo_element(mesh: PBMesh, id: int) -> void:
+func select_subgizmo_element(mesh: MBMesh, id: int) -> void:
 	if mesh == null:
 		return
 	var gizmo := gizmo_plugin.gizmo_for_node(mesh)
 	if gizmo != null:
 		if id >= 0:
-			var xf := gizmo_plugin.element_editor.get_subgizmo_transform(mesh.pb_mesh_data, mesh, id)
+			var xf := gizmo_plugin.element_editor.get_subgizmo_transform(mesh.mb_mesh_data, mesh, id)
 			mesh.set_subgizmo_selection(gizmo, id, xf)
 		else:
 			mesh.clear_subgizmo_selection()
 	mesh.update_gizmos()
-func apply_faces_material(mesh: PBMesh, target_faces: Array, material: Material) -> void:
-	if mesh == null or mesh.pb_mesh_data == null or target_faces.is_empty() or material == null:
+func apply_faces_material(mesh: MBMesh, target_faces: Array, material: Material) -> void:
+	if mesh == null or mesh.mb_mesh_data == null or target_faces.is_empty() or material == null:
 		return
 
-	var previous: Material = mesh.pb_mesh_data.get_face_material(target_faces[0])
-	var prepared := PBApplyPrep.prepare(material, previous)
+	var previous: Material = mesh.mb_mesh_data.get_face_material(target_faces[0])
+	var prepared := MBApplyPrep.prepare(material, previous)
 	if prepared != material and logger:
 		logger.info("materials", "Applied material prepared: transparency carried from %s"
 			% (previous.resource_name if previous != null else "(none)"))
 
-	var before := PBCommand.copy_mesh_data(mesh.pb_mesh_data)
-	mesh.pb_mesh_data.set_faces_material(target_faces, prepared)
-	var after := PBCommand.copy_mesh_data(mesh.pb_mesh_data)
+	var before := MBCommand.copy_mesh_data(mesh.mb_mesh_data)
+	mesh.mb_mesh_data.set_faces_material(target_faces, prepared)
+	var after := MBCommand.copy_mesh_data(mesh.mb_mesh_data)
 
 	var undo := get_undo_redo()
 	undo.create_action("Apply Material to Faces", UndoRedo.MERGE_DISABLE, mesh)
@@ -1635,7 +1635,7 @@ func _on_drag_updated(active: bool, _t: Vector3, _r: Vector3, _s: Vector3) -> vo
 ## A shift+move / shift+scale gesture committed — face ids shifted, so the
 ## engine's subgizmo selection and our mirrors are stale. Clear and redraw
 ## (same dance as an explicit mesh op).
-func _on_drag_topology_committed(mesh: PBMesh, new_face_ids: PackedInt32Array = PackedInt32Array()) -> void:
+func _on_drag_topology_committed(mesh: MBMesh, new_face_ids: PackedInt32Array = PackedInt32Array()) -> void:
 	editor.hover_id = -1
 	_hover_drawn_last = -1
 	editor.selection.clear_all()
@@ -1646,8 +1646,8 @@ func _on_drag_topology_committed(mesh: PBMesh, new_face_ids: PackedInt32Array = 
 	# (coplanar, similar, mode-switch) left NOTHING selected: the gizmo
 	# dropped back to the whole-object pivot and the overlay count went to
 	# zero/one even though the whole set had been extruded.
-	if not new_face_ids.is_empty() and editor.select_mode == PBEditor.SelectMode.FACE \
-			and is_instance_valid(mesh) and mesh.pb_mesh_data != null:
+	if not new_face_ids.is_empty() and editor.select_mode == MBEditor.SelectMode.FACE \
+			and is_instance_valid(mesh) and mesh.mb_mesh_data != null:
 		_apply_selection_set(mesh, new_face_ids, PackedInt32Array())
 	mesh.update_gizmos()
 
@@ -1667,8 +1667,8 @@ var op_bevel_segments: int = OP_BEVEL_SEGMENTS
 
 ## Edge ids the gizmo is actually highlighting: engine selection expanded
 ## through recorded loops. Toolbar clicks must not shrink this to the seed.
-func _edge_ids_for_op(mesh_data: PBMeshData) -> PackedInt32Array:
-	var seeds := PBMeshOps.common_edge_ids(mesh_data, editor.selection.selected_edges)
+func _edge_ids_for_op(mesh_data: MBMeshData) -> PackedInt32Array:
+	var seeds := MBMeshOps.common_edge_ids(mesh_data, editor.selection.selected_edges)
 	var ee := gizmo_plugin.element_editor if gizmo_plugin != null else null
 	if ee == null:
 		return seeds
@@ -1684,20 +1684,20 @@ func _edge_ids_for_op(mesh_data: PBMeshData) -> PackedInt32Array:
 ## per-index payloads don't apply.
 func _on_operation_requested(op_name: String) -> void:
 	# Object-level ops act on the SCENE selection (plain MeshInstance3D /
-	# CSGShape3D nodes, or several PBMeshes at once) — they must run even when
+	# CSGShape3D nodes, or several MBMeshes at once) — they must run even when
 	# nothing is being element-edited: poibuilderizing a raw GLB mesh happens
-	# exactly when NO PBMesh is active, so these sit BEFORE the editing gate.
+	# exactly when NO MBMesh is active, so these sit BEFORE the editing gate.
 	if op_name == "meshbuilderize" or op_name == "probuilderize":
 		_perform_meshbuilderize()
 		return
 	if op_name == "csg_union":
-		_perform_csg_boolean(PBCsg.BooleanOp.UNION)
+		_perform_csg_boolean(MBCsg.BooleanOp.UNION)
 		return
 	if op_name == "csg_subtract":
-		_perform_csg_boolean(PBCsg.BooleanOp.SUBTRACT)
+		_perform_csg_boolean(MBCsg.BooleanOp.SUBTRACT)
 		return
 	if op_name == "csg_intersect":
-		_perform_csg_boolean(PBCsg.BooleanOp.INTERSECT)
+		_perform_csg_boolean(MBCsg.BooleanOp.INTERSECT)
 		return
 	# Whole-object tools (Row 4 + Auto Smooth): they act on the active mesh,
 	# not the element selection, so they must ALSO run in OBJECT mode — the
@@ -1722,10 +1722,10 @@ func _on_operation_requested(op_name: String) -> void:
 		return
 	# Extrude is ONE action: face mode extrudes faces, edge mode extrudes
 	# fins (both the toolbar button and the op key route here).
-	if op_name == "extrude_faces" and editor.select_mode == PBEditor.SelectMode.EDGE:
+	if op_name == "extrude_faces" and editor.select_mode == MBEditor.SelectMode.EDGE:
 		op_name = "extrude_edges"
 	var mesh := editor.active_mesh
-	var mesh_data: PBMeshData = mesh.pb_mesh_data
+	var mesh_data: MBMeshData = mesh.mb_mesh_data
 	if mesh_data == null:
 		return
 
@@ -1782,53 +1782,53 @@ func _on_operation_requested(op_name: String) -> void:
 	var result: Dictionary
 	match op_name:
 		"extrude_faces":
-			result = PBMeshOps.extrude_faces(mesh_data, selection.selected_faces.duplicate(), distance)
+			result = MBMeshOps.extrude_faces(mesh_data, selection.selected_faces.duplicate(), distance)
 		"inset_faces":
-			result = PBMeshOps.inset_faces(mesh_data, selection.selected_faces.duplicate(), amount)
+			result = MBMeshOps.inset_faces(mesh_data, selection.selected_faces.duplicate(), amount)
 		"subdivide_faces":
-			result = PBMeshOps.subdivide_faces(mesh_data, selection.selected_faces.duplicate())
+			result = MBMeshOps.subdivide_faces(mesh_data, selection.selected_faces.duplicate())
 		"merge_faces":
-			result = PBMeshOps.merge_faces(mesh_data, selection.selected_faces.duplicate())
+			result = MBMeshOps.merge_faces(mesh_data, selection.selected_faces.duplicate())
 		"delete_faces":
-			result = PBMeshOps.delete_faces(mesh_data, selection.selected_faces.duplicate())
+			result = MBMeshOps.delete_faces(mesh_data, selection.selected_faces.duplicate())
 		"weld_vertices":
-			result = PBMeshOps.weld_vertices(mesh_data, selection.selected_vertices.duplicate())
+			result = MBMeshOps.weld_vertices(mesh_data, selection.selected_vertices.duplicate())
 		"extrude_edges":
 			var edge_ids := _edge_ids_for_op(mesh_data)
-			result = PBMeshOps.extrude_edges(mesh_data, edge_ids, distance)
+			result = MBMeshOps.extrude_edges(mesh_data, edge_ids, distance)
 		"insert_edge_loop":
 			var loop_ids := _edge_ids_for_op(mesh_data)
-			result = PBMeshOps.insert_edge_loop(mesh_data, loop_ids)
+			result = MBMeshOps.insert_edge_loop(mesh_data, loop_ids)
 		"bridge_edges":
 			var edge_ids := _edge_ids_for_op(mesh_data)
-			result = PBMeshOps.bridge_edges(mesh_data, edge_ids)
+			result = MBMeshOps.bridge_edges(mesh_data, edge_ids)
 		"connect_edges":
-			if editor.select_mode == PBEditor.SelectMode.VERTEX:
-				result = PBMeshOps.connect_vertices(mesh_data, selection.selected_vertices.duplicate())
+			if editor.select_mode == MBEditor.SelectMode.VERTEX:
+				result = MBMeshOps.connect_vertices(mesh_data, selection.selected_vertices.duplicate())
 			else:
 				var edge_ids := _edge_ids_for_op(mesh_data)
-				result = PBMeshOps.connect_edges(mesh_data, edge_ids)
+				result = MBMeshOps.connect_edges(mesh_data, edge_ids)
 		"connect_vertices":
-			result = PBMeshOps.connect_vertices(mesh_data, selection.selected_vertices.duplicate())
+			result = MBMeshOps.connect_vertices(mesh_data, selection.selected_vertices.duplicate())
 		"collapse_elements":
 			var elem_ids: PackedInt32Array
 			match editor.select_mode:
-				PBEditor.SelectMode.VERTEX:
+				MBEditor.SelectMode.VERTEX:
 					elem_ids = selection.selected_vertices.duplicate()
-				PBEditor.SelectMode.EDGE:
+				MBEditor.SelectMode.EDGE:
 					elem_ids = _edge_ids_for_op(mesh_data)
-				PBEditor.SelectMode.FACE:
+				MBEditor.SelectMode.FACE:
 					elem_ids = selection.selected_faces.duplicate()
-			result = PBMeshOps.collapse_elements(mesh_data, int(editor.select_mode), elem_ids)
+			result = MBMeshOps.collapse_elements(mesh_data, int(editor.select_mode), elem_ids)
 		"fill_hole":
 			var edge_ids := _edge_ids_for_op(mesh_data)
-			result = PBMeshOps.fill_hole(mesh_data, edge_ids)
+			result = MBMeshOps.fill_hole(mesh_data, edge_ids)
 		"bevel_edges":
 			var is_face_bevel := false
 			var edge_ids: PackedInt32Array
-			if editor.select_mode == PBEditor.SelectMode.FACE:
+			if editor.select_mode == MBEditor.SelectMode.FACE:
 				if selection.selected_faces.size() == mesh_data.faces.size():
-					edge_ids = PBMeshOps.face_edges_common_ids(mesh_data, selection.selected_faces)
+					edge_ids = MBMeshOps.face_edges_common_ids(mesh_data, selection.selected_faces)
 				else:
 					is_face_bevel = true
 			else:
@@ -1860,9 +1860,9 @@ func _on_operation_requested(op_name: String) -> void:
 							shortest_l = l
 
 			var eff_amount := op_bevel_amount
-			var pre_snapshot := PBCommand.copy_mesh_data(mesh_data)
+			var pre_snapshot := MBCommand.copy_mesh_data(mesh_data)
 			var faces_to_bevel := selection.selected_faces.duplicate()
-			var edges_to_bevel: Array[PBEdge] = []
+			var edges_to_bevel: Array[MBEdge] = []
 			if not is_face_bevel:
 				var common_store := mesh_data.get_common_edges()
 				for eid in edge_ids:
@@ -1873,9 +1873,9 @@ func _on_operation_requested(op_name: String) -> void:
 
 
 			if is_face_bevel:
-				result = PBMeshOps.bevel_faces(mesh_data, faces_to_bevel, eff_amount, op_bevel_segments)
+				result = MBMeshOps.bevel_faces(mesh_data, faces_to_bevel, eff_amount, op_bevel_segments)
 			else:
-				result = PBMeshOps.bevel_edges(mesh_data, edge_ids, eff_amount, op_bevel_segments)
+				result = MBMeshOps.bevel_edges(mesh_data, edge_ids, eff_amount, op_bevel_segments)
 
 			if result.get("ok", false):
 				if tool_overlay != null:
@@ -1898,19 +1898,19 @@ func _on_operation_requested(op_name: String) -> void:
 	_finish_mesh_op(mesh, op_name, int(result["new_face_ids"].size()), result.get("new_face_ids", PackedInt32Array()))
 ## sibling holding the extracted faces. One undo action covers both (the new
 ## node is registered as a do-reference so undo keeps it alive for redo).
-func _perform_detach(mesh: PBMesh, face_ids: PackedInt32Array) -> void:
-	var mesh_data: PBMeshData = mesh.pb_mesh_data
-	var before := PBCommand.copy_mesh_data(mesh_data)
-	var result := PBMeshOps.detach_faces(mesh_data, face_ids)
+func _perform_detach(mesh: MBMesh, face_ids: PackedInt32Array) -> void:
+	var mesh_data: MBMeshData = mesh.mb_mesh_data
+	var before := MBCommand.copy_mesh_data(mesh_data)
+	var result := MBMeshOps.detach_faces(mesh_data, face_ids)
 	if not result["ok"]:
 		if logger:
 			logger.warn("mesh_ops", "detach failed: %s" % result.get("error", "?"))
 		return
-	var after := PBCommand.copy_mesh_data(mesh_data)
+	var after := MBCommand.copy_mesh_data(mesh_data)
 
-	var new_node := PBMesh.new()
+	var new_node := MBMesh.new()
 	new_node.name = _unique_detached_name(mesh)
-	new_node.pb_mesh_data = result["detached"]
+	new_node.mb_mesh_data = result["detached"]
 	# The detached positions are in the SOURCE's local space — copying the
 	# source transform keeps the new object exactly where the faces were
 	# (position, rotation, and scale), instead of snapping to identity.
@@ -1934,7 +1934,7 @@ func _perform_detach(mesh: PBMesh, face_ids: PackedInt32Array) -> void:
 ## that CREATE faces (bridge, fill hole) select their output through the
 ## ordinary selection path so the gizmo lands on the new geometry instead
 ## of going dead until the next click.
-func _finish_mesh_op(mesh: PBMesh, op_name: String, new_face_count: int, created_faces: PackedInt32Array = PackedInt32Array()) -> void:
+func _finish_mesh_op(mesh: MBMesh, op_name: String, new_face_count: int, created_faces: PackedInt32Array = PackedInt32Array()) -> void:
 	editor.hover_id = -1
 	_hover_drawn_last = -1
 	gizmo_plugin.element_editor.reset_side_faces()
@@ -1942,10 +1942,10 @@ func _finish_mesh_op(mesh: PBMesh, op_name: String, new_face_count: int, created
 	editor.selection.clear_all()
 	mesh.clear_subgizmo_selection()
 	if (op_name == "bridge_edges" or op_name == "fill_hole") and not created_faces.is_empty():
-		editor.select_mode = PBEditor.SelectMode.FACE
+		editor.select_mode = MBEditor.SelectMode.FACE
 		_apply_selection_set(mesh, created_faces, PackedInt32Array())
-	if mesh.pb_mesh_data != null:
-		mesh.pb_mesh_data.shape_edited = true
+	if mesh.mb_mesh_data != null:
+		mesh.mb_mesh_data.shape_edited = true
 	mesh.update_gizmos()
 	if logger:
 		logger.info("mesh_ops", "%s: %d new face(s)" % [op_name, new_face_count])
@@ -1971,19 +1971,19 @@ const OP_ACTION_NAMES := {
 }
 func _perform_select_all() -> void:
 	var mesh := editor.active_mesh
-	if mesh == null or mesh.pb_mesh_data == null:
+	if mesh == null or mesh.mb_mesh_data == null:
 		return
-	var ids := PBSelectionOps.get_all_ids(mesh.pb_mesh_data, editor.select_mode)
+	var ids := MBSelectionOps.get_all_ids(mesh.mb_mesh_data, editor.select_mode)
 	if not ids.is_empty():
 		_apply_selection_set(mesh, ids, PackedInt32Array())
 	mesh.update_gizmos()
 
 func _perform_invert_selection() -> void:
 	var mesh := editor.active_mesh
-	if mesh == null or mesh.pb_mesh_data == null:
+	if mesh == null or mesh.mb_mesh_data == null:
 		return
 	var cur_ids := editor.selection.get_selected_ids(editor.select_mode)
-	var inv_ids := PBSelectionOps.get_inverted_ids(mesh.pb_mesh_data, cur_ids, editor.select_mode)
+	var inv_ids := MBSelectionOps.get_inverted_ids(mesh.mb_mesh_data, cur_ids, editor.select_mode)
 	if inv_ids.is_empty():
 		editor.selection.clear_all()
 		var gizmo := gizmo_plugin.gizmo_for_node(mesh)
@@ -1995,7 +1995,7 @@ func _perform_invert_selection() -> void:
 
 func _perform_grow_selection() -> void:
 	var mesh := editor.active_mesh
-	if mesh == null or mesh.pb_mesh_data == null:
+	if mesh == null or mesh.mb_mesh_data == null:
 		return
 	editor.selection.grow_selection(editor.select_mode)
 	var ids := editor.selection.get_selected_ids(editor.select_mode)
@@ -2005,7 +2005,7 @@ func _perform_grow_selection() -> void:
 
 func _perform_shrink_selection() -> void:
 	var mesh := editor.active_mesh
-	if mesh == null or mesh.pb_mesh_data == null:
+	if mesh == null or mesh.mb_mesh_data == null:
 		return
 	editor.selection.shrink_selection(editor.select_mode)
 	var ids := editor.selection.get_selected_ids(editor.select_mode)
@@ -2020,7 +2020,7 @@ func _perform_shrink_selection() -> void:
 
 func _perform_select_coplanar() -> void:
 	var mesh := editor.active_mesh
-	if mesh == null or mesh.pb_mesh_data == null or editor.select_mode != PBEditor.SelectMode.FACE:
+	if mesh == null or mesh.mb_mesh_data == null or editor.select_mode != MBEditor.SelectMode.FACE:
 		return
 	editor.selection.select_coplanar()
 	var ids := editor.selection.selected_faces.duplicate()
@@ -2030,7 +2030,7 @@ func _perform_select_coplanar() -> void:
 
 func _perform_select_similar(criteria: String = "material") -> void:
 	var mesh := editor.active_mesh
-	if mesh == null or mesh.pb_mesh_data == null or editor.select_mode != PBEditor.SelectMode.FACE:
+	if mesh == null or mesh.mb_mesh_data == null or editor.select_mode != MBEditor.SelectMode.FACE:
 		return
 	editor.selection.select_similar(criteria)
 	var ids := editor.selection.selected_faces.duplicate()
@@ -2040,17 +2040,17 @@ func _perform_select_similar(criteria: String = "material") -> void:
 
 func _perform_select_boundary() -> void:
 	var mesh := editor.active_mesh
-	if mesh == null or mesh.pb_mesh_data == null:
+	if mesh == null or mesh.mb_mesh_data == null:
 		return
-	editor.select_mode = PBEditor.SelectMode.EDGE
-	var ids := PBSelectionOps.select_boundary_edge_ids(mesh.pb_mesh_data)
+	editor.select_mode = MBEditor.SelectMode.EDGE
+	var ids := MBSelectionOps.select_boundary_edge_ids(mesh.mb_mesh_data)
 	if not ids.is_empty():
 		_apply_selection_set(mesh, ids, PackedInt32Array())
 	mesh.update_gizmos()
 
 func _perform_select_face_loop(ring: bool = false) -> void:
 	var mesh := editor.active_mesh
-	if mesh == null or mesh.pb_mesh_data == null or editor.select_mode != PBEditor.SelectMode.FACE:
+	if mesh == null or mesh.mb_mesh_data == null or editor.select_mode != MBEditor.SelectMode.FACE:
 		return
 	editor.selection.select_face_loop(ring)
 	var ids := editor.selection.selected_faces.duplicate()
@@ -2062,19 +2062,19 @@ func _perform_merge_objects() -> void:
 	var selected_nodes: Array[Node] = []
 	if ei != null and ei.get_selection() != null:
 		selected_nodes = ei.get_selection().get_selected_nodes()
-	var pb_meshes: Array[PBMesh] = []
+	var mb_meshes: Array[MBMesh] = []
 	for n in selected_nodes:
-		if n is PBMesh and (n as PBMesh).pb_mesh_data != null:
-			pb_meshes.append(n as PBMesh)
-	if pb_meshes.size() < 2:
+		if n is MBMesh and (n as MBMesh).mb_mesh_data != null:
+			mb_meshes.append(n as MBMesh)
+	if mb_meshes.size() < 2:
 		if logger:
-			logger.warn("plugin", "Merge Objects requires at least 2 selected PBMesh nodes")
+			logger.warn("plugin", "Merge Objects requires at least 2 selected MBMesh nodes")
 		return
-	var target := pb_meshes[0]
-	var donors: Array[PBMesh] = []
-	for i in range(1, pb_meshes.size()):
-		donors.append(pb_meshes[i])
-	var success := PBObjectOps.merge_meshes(target, donors)
+	var target := mb_meshes[0]
+	var donors: Array[MBMesh] = []
+	for i in range(1, mb_meshes.size()):
+		donors.append(mb_meshes[i])
+	var success := MBObjectOps.merge_meshes(target, donors)
 	if success:
 		for d in donors:
 			if d.get_parent() != null:
@@ -2084,9 +2084,9 @@ func _perform_merge_objects() -> void:
 
 func _perform_mirror_object() -> void:
 	var mesh := editor.active_mesh
-	if mesh == null or mesh.pb_mesh_data == null:
+	if mesh == null or mesh.mb_mesh_data == null:
 		return
-	var success := PBObjectOps.mirror_mesh_data(mesh.pb_mesh_data, Vector3.AXIS_X)
+	var success := MBObjectOps.mirror_mesh_data(mesh.mb_mesh_data, Vector3.AXIS_X)
 	if success:
 		mesh.rebuild()
 		mesh.update_gizmos()
@@ -2095,9 +2095,9 @@ func _perform_mirror_object() -> void:
 
 func _perform_center_pivot() -> void:
 	var mesh := editor.active_mesh
-	if mesh == null or mesh.pb_mesh_data == null:
+	if mesh == null or mesh.mb_mesh_data == null:
 		return
-	var success := PBObjectOps.center_pivot(mesh)
+	var success := MBObjectOps.center_pivot(mesh)
 	if success:
 		mesh.update_gizmos()
 		if logger:
@@ -2109,9 +2109,9 @@ func _perform_center_pivot() -> void:
 
 func _perform_freeze_transform() -> void:
 	var mesh := editor.active_mesh
-	if mesh == null or mesh.pb_mesh_data == null:
+	if mesh == null or mesh.mb_mesh_data == null:
 		return
-	var success := PBObjectOps.freeze_transform(mesh)
+	var success := MBObjectOps.freeze_transform(mesh)
 	if success:
 		mesh.update_gizmos()
 		if logger:
@@ -2129,7 +2129,7 @@ func _collect_convertible_nodes(nodes: Array[Node]) -> Array[Node]:
 			if seen.has(n):
 				continue
 			seen[n] = true
-			if (n is MeshInstance3D and not (n is PBMesh)) or (n is CSGShape3D):
+			if (n is MeshInstance3D and not (n is MBMesh)) or (n is CSGShape3D):
 				result.append(n)
 			for child in n.get_children():
 				stack.append(child)
@@ -2159,13 +2159,13 @@ func _perform_meshbuilderize() -> void:
 		undo_mgr.create_action("MeshBuilderize Meshes", UndoRedo.MERGE_DISABLE,
 			scene_root if scene_root != null else candidates[0])
 
-	var created_nodes: Array[PBMesh] = []
+	var created_nodes: Array[MBMesh] = []
 	for n in candidates:
-		var pb: PBMesh = null
-		if n is MeshInstance3D and not (n is PBMesh):
-			pb = PBObjectOps.meshbuilderize(n as MeshInstance3D)
+		var pb: MBMesh = null
+		if n is MeshInstance3D and not (n is MBMesh):
+			pb = MBObjectOps.meshbuilderize(n as MeshInstance3D)
 		elif n is CSGShape3D:
-			pb = PBObjectOps.meshbuilderize_csg(n as CSGShape3D)
+			pb = MBObjectOps.meshbuilderize_csg(n as CSGShape3D)
 
 		if pb != null:
 			var parent := n.get_parent()
@@ -2175,7 +2175,7 @@ func _perform_meshbuilderize() -> void:
 				pb.transform = n.transform
 				created_nodes.append(pb)
 				# The whole swap runs through the undo do-methods: adding the
-				# PBMesh directly here as well would make the committed
+				# MBMesh directly here as well would make the committed
 				# add_child a no-op error ("already has a parent") and leave
 				# the action's bookkeeping out of sync with the tree.
 				if undo_mgr != null:
@@ -2201,12 +2201,12 @@ func _perform_meshbuilderize() -> void:
 				ei.get_selection().add_node(pb)
 			editor.active_mesh = created_nodes[0]
 		if logger:
-			logger.info("plugin", "MeshBuilderized %d node(s) into editable PBMesh" % created_nodes.size())
+			logger.info("plugin", "MeshBuilderized %d node(s) into editable MBMesh" % created_nodes.size())
 
 func _perform_probuilderize() -> void:
 	_perform_meshbuilderize()
 
-func _perform_csg_boolean(op: PBCsg.BooleanOp) -> void:
+func _perform_csg_boolean(op: MBCsg.BooleanOp) -> void:
 	var ei := get_editor_interface()
 	var selected_nodes: Array[Node] = []
 	if ei != null and ei.get_selection() != null:
@@ -2214,7 +2214,7 @@ func _perform_csg_boolean(op: PBCsg.BooleanOp) -> void:
 
 	var candidates: Array[Node] = []
 	for n in selected_nodes:
-		if (n is PBMesh and (n as PBMesh).pb_mesh_data != null) or (n is CSGShape3D) or (n is MeshInstance3D and not (n is PBMesh)):
+		if (n is MBMesh and (n as MBMesh).mb_mesh_data != null) or (n is CSGShape3D) or (n is MeshInstance3D and not (n is MBMesh)):
 			candidates.append(n)
 
 	if candidates.size() < 2:
@@ -2235,31 +2235,31 @@ func _perform_csg_boolean(op: PBCsg.BooleanOp) -> void:
 	if logger:
 		logger.info("plugin", "CSG target: %s   cutter: %s" % [target_node.name, cutter_node.name])
 
-	var target_mesh: PBMesh = null
-	if target_node is PBMesh:
-		target_mesh = target_node as PBMesh
+	var target_mesh: MBMesh = null
+	if target_node is MBMesh:
+		target_mesh = target_node as MBMesh
 	elif target_node is CSGShape3D:
-		target_mesh = PBObjectOps.meshbuilderize_csg(target_node as CSGShape3D)
+		target_mesh = MBObjectOps.meshbuilderize_csg(target_node as CSGShape3D)
 	elif target_node is MeshInstance3D:
-		target_mesh = PBObjectOps.meshbuilderize(target_node as MeshInstance3D)
+		target_mesh = MBObjectOps.meshbuilderize(target_node as MeshInstance3D)
 
-	if target_mesh == null or target_mesh.pb_mesh_data == null:
+	if target_mesh == null or target_mesh.mb_mesh_data == null:
 		if logger:
 			logger.error("plugin", "CSG Error: Target object has no valid mesh")
 		return
 
-	var cutter_data: PBMeshData = null
-	if cutter_node is PBMesh:
-		cutter_data = (cutter_node as PBMesh).pb_mesh_data
+	var cutter_data: MBMeshData = null
+	if cutter_node is MBMesh:
+		cutter_data = (cutter_node as MBMesh).mb_mesh_data
 	elif cutter_node is CSGShape3D:
-		var tmp := PBObjectOps.meshbuilderize_csg(cutter_node as CSGShape3D)
+		var tmp := MBObjectOps.meshbuilderize_csg(cutter_node as CSGShape3D)
 		if tmp != null:
-			cutter_data = tmp.pb_mesh_data
+			cutter_data = tmp.mb_mesh_data
 			tmp.free()
 	elif cutter_node is MeshInstance3D:
-		var tmp := PBObjectOps.meshbuilderize(cutter_node as MeshInstance3D)
+		var tmp := MBObjectOps.meshbuilderize(cutter_node as MeshInstance3D)
 		if tmp != null:
-			cutter_data = tmp.pb_mesh_data
+			cutter_data = tmp.mb_mesh_data
 			tmp.free()
 
 	if cutter_data == null:
@@ -2271,14 +2271,14 @@ func _perform_csg_boolean(op: PBCsg.BooleanOp) -> void:
 	var cutter_xf: Transform3D = cutter_node.global_transform if cutter_node.is_inside_tree() else cutter_node.transform
 	var rel_xf := target_xf.affine_inverse() * cutter_xf
 
-	var res := PBCsg.perform_boolean(target_mesh.pb_mesh_data, cutter_data, op, rel_xf, get_tree())
+	var res := MBCsg.perform_boolean(target_mesh.mb_mesh_data, cutter_data, op, rel_xf, get_tree())
 	if not res.get("success", false):
 		if logger:
 			logger.error("plugin", "CSG Error: %s" % res.get("error", "Unknown error"))
 		return
 
-	var before_data := PBCommand.copy_mesh_data(target_mesh.pb_mesh_data)
-	var after_data: PBMeshData = res["mesh_data"]
+	var before_data := MBCommand.copy_mesh_data(target_mesh.mb_mesh_data)
+	var after_data: MBMeshData = res["mesh_data"]
 
 	var op_name_str: String = ["Union", "Intersect", "Subtract"][op]
 	var undo_mgr := get_undo_redo()
@@ -2314,7 +2314,7 @@ func _perform_csg_boolean(op: PBCsg.BooleanOp) -> void:
 				sel.add_node(target_mesh)
 		editor.active_mesh = target_mesh
 	else:
-		target_mesh.pb_mesh_data = after_data
+		target_mesh.mb_mesh_data = after_data
 		target_mesh.rebuild()
 		target_mesh.update_gizmos()
 		if cutter_node.get_parent() != null:
@@ -2338,19 +2338,19 @@ func _reattach_csg_cutter(node: Node, parent: Node) -> void:
 	if node is Node3D:
 		(node as Node3D).update_gizmos()
 
-func _restore_csg_mesh(mesh: PBMesh, data: PBMeshData) -> void:
+func _restore_csg_mesh(mesh: MBMesh, data: MBMeshData) -> void:
 	if mesh != null and is_instance_valid(mesh):
 		# A live copy: undo snapshots are cold (no GPU textures) and this one
 		# is rendered as-is.
-		mesh.pb_mesh_data = PBCommand.copy_mesh_data_live(data)
-		mesh.pb_mesh_data.shape_edited = true
+		mesh.mb_mesh_data = MBCommand.copy_mesh_data_live(data)
+		mesh.mb_mesh_data.shape_edited = true
 		mesh.rebuild()
 		mesh.update_gizmos()
 func _perform_auto_smooth() -> void:
 	var mesh := editor.active_mesh
-	if mesh == null or mesh.pb_mesh_data == null:
+	if mesh == null or mesh.mb_mesh_data == null:
 		return
-	var count := PBSmoothGroups.auto_smooth(mesh.pb_mesh_data, 45.0)
+	var count := MBSmoothGroups.auto_smooth(mesh.mb_mesh_data, 45.0)
 	mesh.rebuild()
 	mesh.update_gizmos()
 	if logger:
@@ -2364,20 +2364,20 @@ func _perform_auto_smooth() -> void:
 ## What the overlay params modal is editing: "create" (a just-placed shape)
 ## or "edit" (Edit Params on a pristine factory shape).
 var _params_session_kind: String = ""
-var _params_edit_node: PBMesh = null
-var _params_edit_snapshot: PBMeshData = null
+var _params_edit_node: MBMesh = null
+var _params_edit_snapshot: MBMeshData = null
 var _params_edit_snapshot_cast_shadow: int = 0
-var _bevel_session_node: PBMesh = null
-var _bevel_session_snapshot: PBMeshData = null
-var _bevel_session_mode: PBEditor.SelectMode = PBEditor.SelectMode.OBJECT
+var _bevel_session_node: MBMesh = null
+var _bevel_session_snapshot: MBMeshData = null
+var _bevel_session_mode: MBEditor.SelectMode = MBEditor.SelectMode.OBJECT
 var _bevel_session_is_face_bevel: bool = false
 var _bevel_session_faces: PackedInt32Array = PackedInt32Array()
-var _bevel_session_edges: Array[PBEdge] = []
+var _bevel_session_edges: Array[MBEdge] = []
 var _bevel_session_last_new_faces: PackedInt32Array = PackedInt32Array()
 var _params_edit_values: Dictionary = {}
 
 ## A New Shape menu pick ARMS creation: nothing exists yet — the next LMB
-## drag on any surface (PBMesh face or grid plane) draws the base. Any open
+## drag on any surface (MBMesh face or grid plane) draws the base. Any open
 ## params session is committed first (a create session in the modal applies;
 ## an Edit Params session commits) so the new shape never replaces the node
 ## a still-open dialog was editing.
@@ -2410,7 +2410,7 @@ func _on_shape_requested(shape_id: StringName) -> void:
 	if shape_id == &"trim":
 		_seed_trim_project_values()
 	# Arming is a MeshBuilder context change too: the engine grid hides and
-	# the elevated PB grid shows while drawing (engine-bridge a no-op).
+	# the elevated MeshBuilder grid shows while drawing (engine-bridge a no-op).
 	_update_editing_context()
 	if grid.enabled != snap_state_before_arm:
 		grid.enabled = snap_state_before_arm
@@ -2418,9 +2418,9 @@ func _on_shape_requested(shape_id: StringName) -> void:
 	if shape_id == &"sprite":
 		_set_creation_hint("%s — click a surface to anchor it (Esc cancels)"
 			% String(shape_id).capitalize())
-	elif PBShapeParams.commits_on_base_release(shape_id):
+	elif MBShapeParams.commits_on_base_release(shape_id):
 		_set_creation_hint("Trim — drag base along wall, release to commit (Esc cancels)")
-	elif PBShapeParams.height_drags_offset(shape_id):
+	elif MBShapeParams.height_drags_offset(shape_id):
 		_set_creation_hint("%s — drag out a sheet on any surface, then move to offset it (Ctrl: lock direction, Esc cancels)"
 			% String(shape_id).capitalize())
 	else:
@@ -2437,13 +2437,13 @@ func _set_creation_hint(text: String) -> void:
 func _creation_input(camera: Camera3D, event: InputEvent) -> int:
 	if event is InputEventWithModifiers:
 		shape_creator.lock_direction = event.ctrl_pressed or Input.is_key_pressed(KEY_CTRL)
-		if shape_creator.state == PBShapeCreator.State.HEIGHT:
+		if shape_creator.state == MBShapeCreator.State.HEIGHT:
 			var alt_down: bool = event.alt_pressed or Input.is_key_pressed(KEY_ALT)
 			if shape_creator.show_height_plane != alt_down:
 				shape_creator.show_height_plane = alt_down
 				_refresh_preview()
 	elif event is InputEventKey:
-		if shape_creator.state == PBShapeCreator.State.HEIGHT:
+		if shape_creator.state == MBShapeCreator.State.HEIGHT:
 			var alt_down: bool = event.alt_pressed or Input.is_key_pressed(KEY_ALT)
 			if shape_creator.show_height_plane != alt_down:
 				shape_creator.show_height_plane = alt_down
@@ -2458,16 +2458,16 @@ func _creation_input(camera: Camera3D, event: InputEvent) -> int:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			match shape_creator.state:
-				PBShapeCreator.State.ARMED:
+				MBShapeCreator.State.ARMED:
 					if _creation_begin_from_surface(camera, event.position):
 						# Consume the press so the engine never starts a
 						# marquee / selection under the creation drag.
 						return AFTER_GUI_INPUT_STOP
 					return AFTER_GUI_INPUT_PASS
-				PBShapeCreator.State.HEIGHT, PBShapeCreator.State.OFFSET:
+				MBShapeCreator.State.HEIGHT, MBShapeCreator.State.OFFSET:
 					_creation_confirm()
 					return AFTER_GUI_INPUT_STOP
-				PBShapeCreator.State.PARAMS:
+				MBShapeCreator.State.PARAMS:
 					# Clicking elsewhere cancels the uncommitted modal changes
 					# (reverts to placement values), exactly like clicking Cancel.
 					if logger:
@@ -2475,17 +2475,17 @@ func _creation_input(camera: Camera3D, event: InputEvent) -> int:
 					_on_params_canceled()
 					return AFTER_GUI_INPUT_PASS
 		else:
-			if shape_creator.state == PBShapeCreator.State.BASE:
+			if shape_creator.state == MBShapeCreator.State.BASE:
 				_creation_end_base()
 				return AFTER_GUI_INPUT_STOP
 
 	if event is InputEventKey and event.pressed:
 		var k := event as InputEventKey
 		if not k.echo or _is_repeatable_grid_key(k):
-			if shape_creator.state != PBShapeCreator.State.PARAMS \
+			if shape_creator.state != MBShapeCreator.State.PARAMS \
 					and _handle_grid_action_key(k) == AFTER_GUI_INPUT_STOP:
 				return AFTER_GUI_INPUT_STOP
-		if shape_creator.state == PBShapeCreator.State.PARAMS:
+		if shape_creator.state == MBShapeCreator.State.PARAMS:
 			if event.keycode == KEY_ESCAPE:
 				_on_params_canceled()
 				return AFTER_GUI_INPUT_STOP
@@ -2502,7 +2502,7 @@ func _creation_input(camera: Camera3D, event: InputEvent) -> int:
 			_creation_abort("cancelled with Escape")
 			return AFTER_GUI_INPUT_STOP
 	return AFTER_GUI_INPUT_PASS
-## Nearest surface under the cursor: PBMesh faces (world space) with
+## Nearest surface under the cursor: MBMesh faces (world space) with
 ## MeshBuilder's grid plane as the fallback, like ProBuilder dragging on the
 ## grid. With "Draw on Grid" ON, surface picking is skipped entirely — every
 ## new shape is drawn on the (possibly elevated) grid plane. Returns
@@ -2511,22 +2511,22 @@ func _pick_creation_surface(camera: Camera3D, screen_pos: Vector2) -> Dictionary
 	var ray_o: Vector3 = camera.project_ray_origin(screen_pos)
 	var ray_d: Vector3 = camera.project_ray_normal(screen_pos)
 	if grid.draw_on_grid:
-		var on_grid := PBShapeCreator.ray_plane_intersect(ray_o, ray_d,
+		var on_grid := MBShapeCreator.ray_plane_intersect(ray_o, ray_d,
 			grid.origin, Vector3.UP)
-		if on_grid != PBShapeCreator.RAY_MISS:
+		if on_grid != MBShapeCreator.RAY_MISS:
 			return {"point": on_grid, "normal": Vector3.UP}
 		return {}
 	var best_t := INF
 	var best := {}
 	var scene_root := get_editor_interface().get_edited_scene_root()
 	if scene_root != null:
-		var pb_hit := PBPicking.scene_ray_pick(PBPicking.collect_pbmeshes(scene_root),
+		var mb_hit := MBPicking.scene_ray_pick(MBPicking.collect_pbmeshes(scene_root),
 				ray_o, ray_d, [shape_creator.preview_node])
-		if not pb_hit.is_empty():
-			best_t = pb_hit["distance"]
-			best = {"point": pb_hit["point"], "normal": pb_hit["normal"]}
+		if not mb_hit.is_empty():
+			best_t = mb_hit["distance"]
+			best = {"point": mb_hit["point"], "normal": mb_hit["normal"]}
 
-		var plain := PBPicking.pick_plain_mesh_surface(scene_root, ray_o, ray_d, best_t)
+		var plain := MBPicking.pick_plain_mesh_surface(scene_root, ray_o, ray_d, best_t)
 		if not plain.is_empty():
 			best_t = ray_o.distance_to(plain["point"])
 			best = plain
@@ -2537,7 +2537,7 @@ func _pick_creation_surface(camera: Camera3D, screen_pos: Vector2) -> Dictionary
 			var phys_hit := w3d.direct_space_state.intersect_ray(ray_query)
 			if not phys_hit.is_empty() and phys_hit.has("position") and phys_hit.has("normal") and phys_hit.has("collider"):
 				var col = phys_hit["collider"]
-				var is_pbmesh_col := (col is Node and col.get_parent() is PBMesh)
+				var is_pbmesh_col := (col is Node and col.get_parent() is MBMesh)
 				if not is_pbmesh_col:
 					var dist: float = ray_o.distance_to(phys_hit["position"])
 					if dist < best_t - 0.001:
@@ -2547,15 +2547,15 @@ func _pick_creation_surface(camera: Camera3D, screen_pos: Vector2) -> Dictionary
 							"normal": phys_hit["normal"]
 						}
 	if best.is_empty():
-		var hit := PBShapeCreator.ray_plane_intersect(ray_o, ray_d, grid.origin, Vector3.UP)
-		if hit != PBShapeCreator.RAY_MISS:
+		var hit := MBShapeCreator.ray_plane_intersect(ray_o, ray_d, grid.origin, Vector3.UP)
+		if hit != MBShapeCreator.RAY_MISS:
 			best = {"point": hit, "normal": Vector3.UP}
 	return best
 
 
 func _collect_mesh_instances(root: Node) -> Array[MeshInstance3D]:
 	var out: Array[MeshInstance3D] = []
-	if root is MeshInstance3D and not (root is PBMesh):
+	if root is MeshInstance3D and not (root is MBMesh):
 		out.append(root as MeshInstance3D)
 	for child in root.get_children():
 		out.append_array(_collect_mesh_instances(child))
@@ -2577,7 +2577,7 @@ func _creation_begin_from_surface(camera: Camera3D, screen_pos: Vector2) -> bool
 		# Sprite flow: one click anchors the shape ON the surface; the mouse
 		# then pushes it along the surface normal until the confirming click.
 		# (The plane reaches the same OFFSET stage, but by dragging a base
-		# rect first — see PBShapeParams.height_drags_offset.)
+		# rect first — see MBShapeParams.height_drags_offset.)
 		shape_creator.begin_anchor(hit["point"], hit["normal"], view_z)
 		_clear_creation_hover()
 		_set_creation_hint("move off the surface to set the offset, then click to confirm")
@@ -2598,7 +2598,7 @@ func _make_preview_node() -> void:
 	if scene_root == null:
 		_creation_abort("no edited scene")
 		return
-	var node := PBMesh.new()
+	var node := MBMesh.new()
 	node.name = _unique_shape_name(scene_root, shape_creator.shape_id)
 	scene_root.add_child(node)
 	# THE OWNER MUST BE SET BEFORE ANYTHING DRAWS: the editor attaches node
@@ -2612,7 +2612,7 @@ func _make_preview_node() -> void:
 ## Rebuilds the preview mesh + placement from the creator's current values.
 ## During the BASE phase the rendered MESH is hidden but the NODE stays
 ## visible — an invisible Node3D also loses its gizmo, which would hide the
-## cyan base-rect outline. pb_mesh_data is still assigned (the gizmo's
+## cyan base-rect outline. mb_mesh_data is still assigned (the gizmo's
 ## redraw needs it to pass its data checks); only the render mesh is
 ## cleared, AFTER the setter's rebuild.
 func _refresh_preview() -> void:
@@ -2623,8 +2623,8 @@ func _refresh_preview() -> void:
 	if data == null:
 		return
 	node.transform = shape_creator.placement_transform(data)
-	node.pb_mesh_data = data
-	if shape_creator.state == PBShapeCreator.State.BASE:
+	node.mb_mesh_data = data
+	if shape_creator.state == MBShapeCreator.State.BASE:
 		node.mesh = null
 	# rebuild alone never redraws it.
 	node.update_gizmos()
@@ -2634,23 +2634,23 @@ func _creation_motion(camera: Camera3D, screen_pos: Vector2) -> void:
 	var ray_o: Vector3 = camera.project_ray_origin(screen_pos)
 	var ray_d: Vector3 = camera.project_ray_normal(screen_pos)
 	match shape_creator.state:
-		PBShapeCreator.State.BASE:
-			var hit := PBShapeCreator.ray_plane_intersect(ray_o, ray_d,
+		MBShapeCreator.State.BASE:
+			var hit := MBShapeCreator.ray_plane_intersect(ray_o, ray_d,
 				shape_creator.plane_point, shape_creator.plane_normal)
-			if hit != PBShapeCreator.RAY_MISS:
+			if hit != MBShapeCreator.RAY_MISS:
 				shape_creator.update_base(hit)
 				_refresh_preview()
 				_update_cursor_extents(screen_pos)
 			# No hover highlight while the base drag is out — the cursor is
 			# busy drawing the rect, not picking a face.
-		PBShapeCreator.State.HEIGHT, PBShapeCreator.State.OFFSET:
-			var ref := PBShapeCreator.height_reference_point(camera.global_position,
+		MBShapeCreator.State.HEIGHT, MBShapeCreator.State.OFFSET:
+			var ref := MBShapeCreator.height_reference_point(camera.global_position,
 				-camera.global_transform.basis.z, ray_o, ray_d, shape_creator.rect_center)
 			shape_creator.update_height_point(ref)
 			_refresh_preview()
 			_update_cursor_extents(screen_pos)
 			_clear_creation_hover()
-		PBShapeCreator.State.PARAMS:
+		MBShapeCreator.State.PARAMS:
 			_clear_creation_hover()
 		_:
 			_update_creation_hover(camera, screen_pos)
@@ -2668,19 +2668,19 @@ func _wire_creation_vertex_snap() -> void:
 	ngon_drawer.vertex_snap_candidates_fn = func() -> PackedVector3Array:
 		return _scene_vertex_candidates(ngon_drawer.preview_node)
 
-## World-space vertices of every PBMesh except `skip` (the live creation
+## World-space vertices of every MBMesh except `skip` (the live creation
 ## preview, whose corners ride the drag and must never catch themselves).
-func _scene_vertex_candidates(skip: PBMesh) -> PackedVector3Array:
+func _scene_vertex_candidates(skip: MBMesh) -> PackedVector3Array:
 	var out := PackedVector3Array()
 	var scene_root := get_editor_interface().get_edited_scene_root()
 	if scene_root == null:
 		return out
 	var seen := {}
-	for m in PBPicking.collect_pbmeshes(scene_root):
-		if m == skip or m.pb_mesh_data == null:
+	for m in MBPicking.collect_pbmeshes(scene_root):
+		if m == skip or m.mb_mesh_data == null:
 			continue
 		var xf: Transform3D = m.global_transform
-		for p in m.pb_mesh_data.positions:
+		for p in m.mb_mesh_data.positions:
 			var w := xf * p
 			var key := Vector3i(roundi(w.x * 1000.0), roundi(w.y * 1000.0), roundi(w.z * 1000.0))
 			if not seen.has(key):
@@ -2693,21 +2693,21 @@ func _update_creation_hover(camera: Camera3D, screen_pos: Vector2) -> void:
 	var ray_o: Vector3 = camera.project_ray_origin(screen_pos)
 	var ray_d: Vector3 = camera.project_ray_normal(screen_pos)
 	var best_t := INF
-	var best_node: PBMesh = null
+	var best_node: MBMesh = null
 	var best_face := -1
 	var best_point := Vector3.ZERO
 	var best_normal := Vector3.UP
 	var scene_root := get_editor_interface().get_edited_scene_root()
 	if scene_root != null:
-		var pb_hit := PBPicking.scene_ray_pick(PBPicking.collect_pbmeshes(scene_root),
+		var mb_hit := MBPicking.scene_ray_pick(MBPicking.collect_pbmeshes(scene_root),
 				ray_o, ray_d, [shape_creator.preview_node])
-		if not pb_hit.is_empty():
-			best_t = pb_hit["distance"]
-			best_node = pb_hit["mesh"]
-			best_face = pb_hit["face_index"]
-			best_point = pb_hit["point"]
-			best_normal = pb_hit["normal"]
-		var plain := PBPicking.pick_plain_mesh_surface(scene_root, ray_o, ray_d, best_t)
+		if not mb_hit.is_empty():
+			best_t = mb_hit["distance"]
+			best_node = mb_hit["mesh"]
+			best_face = mb_hit["face_index"]
+			best_point = mb_hit["point"]
+			best_normal = mb_hit["normal"]
+		var plain := MBPicking.pick_plain_mesh_surface(scene_root, ray_o, ray_d, best_t)
 		if not plain.is_empty():
 			best_t = ray_o.distance_to(plain["point"])
 			best_node = null
@@ -2720,7 +2720,7 @@ func _update_creation_hover(camera: Camera3D, screen_pos: Vector2) -> void:
 			var phys_hit := w3d.direct_space_state.intersect_ray(ray_query)
 			if not phys_hit.is_empty() and phys_hit.has("position") and phys_hit.has("collider"):
 				var col = phys_hit["collider"]
-				var is_pbmesh_col := (col is Node and col.get_parent() is PBMesh)
+				var is_pbmesh_col := (col is Node and col.get_parent() is MBMesh)
 				if not is_pbmesh_col:
 					var dist: float = ray_o.distance_to(phys_hit["position"])
 					if dist < best_t - 0.001:
@@ -2731,23 +2731,23 @@ func _update_creation_hover(camera: Camera3D, screen_pos: Vector2) -> void:
 						if phys_hit.has("normal"):
 							best_normal = phys_hit["normal"]
 	if grid.draw_on_grid or best_point == Vector3.ZERO:
-		var hit := PBShapeCreator.ray_plane_intersect(ray_o, ray_d, grid.origin, Vector3.UP)
-		if hit != PBShapeCreator.RAY_MISS:
+		var hit := MBShapeCreator.ray_plane_intersect(ray_o, ray_d, grid.origin, Vector3.UP)
+		if hit != MBShapeCreator.RAY_MISS:
 			best_point = hit
 			best_normal = Vector3.UP
 			best_node = null
 			best_face = -1
 
 	# Snap the hover vertex to the exact starting point creation will use when clicked:
-	if shape_creator != null and shape_creator.state == PBShapeCreator.State.ARMED:
+	if shape_creator != null and shape_creator.state == MBShapeCreator.State.ARMED:
 		best_point = shape_creator.snap_starting_point(best_point, best_normal)
-	elif ngon_drawer != null and ngon_drawer.is_active() and ngon_drawer.state == PBNgonDrawer.State.ARMED:
+	elif ngon_drawer != null and ngon_drawer.is_active() and ngon_drawer.state == MBNgonDrawer.State.ARMED:
 		best_point = ngon_drawer.snap_starting_point(best_point, best_normal, best_node, best_face)
-	elif sprite_placer != null and sprite_placer.is_active() and sprite_placer.state == PBSpritePlacer.State.ARMED:
-		if grid != null and grid.enabled and PBGrid.is_cardinal(best_normal):
+	elif sprite_placer != null and sprite_placer.is_active() and sprite_placer.state == MBSpritePlacer.State.ARMED:
+		if grid != null and grid.enabled and MBGrid.is_cardinal(best_normal):
 			best_point = grid.snap_point_masked(best_point, best_normal)
 
-	var target_node: PBMesh = best_node
+	var target_node: MBMesh = best_node
 	var target_face: int = best_face
 	if target_node == null and editor.active_mesh != null and is_instance_valid(editor.active_mesh):
 		target_node = editor.active_mesh
@@ -2778,7 +2778,7 @@ func _clear_creation_hover() -> void:
 func _creation_end_base() -> void:
 	# end_base() rejects by resetting the creator — which NULLS preview_node.
 	# Capture the node FIRST and tear it down ourselves, or an undersized /
-	# click-only release leaves the BASE-phase preview (a meshless PBMesh with
+	# click-only release leaves the BASE-phase preview (a meshless MBMesh with
 	# a live gizmo) in the scene forever: the "errored Shape_Cube + persistent
 	# vertex overlay" report.
 	var abandoned := shape_creator.preview_node
@@ -2789,14 +2789,14 @@ func _creation_end_base() -> void:
 			abandoned.queue_free()
 		_creation_abort("base drag too small")
 		return
-	if PBShapeParams.commits_on_base_release(shape_creator.shape_id):
+	if MBShapeParams.commits_on_base_release(shape_creator.shape_id):
 		_creation_confirm()
 		return
 	# Rebuild NOW: the solid preview appears immediately as a flat slab ON
 	# the surface (height 0) instead of popping in below it with a jump at
 	# the first mouse move.
 	_refresh_preview()
-	if shape_creator.state == PBShapeCreator.State.OFFSET:
+	if shape_creator.state == MBShapeCreator.State.OFFSET:
 		_set_creation_hint("move to lift it off the surface, then click to confirm")
 	else:
 		_set_creation_hint("move to size it, then click to confirm (Alt: height plane)")
@@ -2811,12 +2811,12 @@ func _creation_confirm() -> void:
 	# is what produced broken exclamation-mark nodes whose undo poisoned the
 	# tree. Abort like a too-small drag instead.
 	var preview := shape_creator.preview_node
-	if preview == null or not is_instance_valid(preview) or preview.pb_mesh_data == null \
-			or preview.pb_mesh_data.faces.is_empty() \
-			or preview.pb_mesh_data.positions.size() < 3:
+	if preview == null or not is_instance_valid(preview) or preview.mb_mesh_data == null \
+			or preview.mb_mesh_data.faces.is_empty() \
+			or preview.mb_mesh_data.positions.size() < 3:
 		_creation_abort("degenerate geometry")
 		return
-	for p in preview.pb_mesh_data.positions:
+	for p in preview.mb_mesh_data.positions:
 		if p.x != p.x or p.y != p.y or p.z != p.z:  # NaN check — finite garbage is bounded below by end_base's extents
 			_creation_abort("degenerate geometry")
 			return
@@ -2850,11 +2850,11 @@ func _creation_confirm() -> void:
 		editor_selection.add_node(node)
 		editor.active_mesh = node
 
-	if PBShapeParams.needs_params_modal(shape_creator.shape_id):
+	if MBShapeParams.needs_params_modal(shape_creator.shape_id):
 		_params_session_kind = "create"
 		tool_overlay.panel_enabled = true
 		tool_overlay.open_params("%s Parameters" % String(shape_creator.shape_id).capitalize(),
-			PBShapeParams.get_param_defs(shape_creator.shape_id), shape_creator.values)
+			MBShapeParams.get_param_defs(shape_creator.shape_id), shape_creator.values)
 		if logger:
 			logger.info("plugin", "Placed '%s' — adjust parameters, then Apply/Cancel" % node.name)
 	else:
@@ -2865,18 +2865,18 @@ func _creation_confirm() -> void:
 
 ## Stamps the creation bookkeeping onto the node's data from the creator's
 ## current values (shared by Apply and the no-modal fast path).
-func _finalize_created_shape(node: PBMesh) -> void:
-	if node == null or not is_instance_valid(node) or node.pb_mesh_data == null:
+func _finalize_created_shape(node: MBMesh) -> void:
+	if node == null or not is_instance_valid(node) or node.mb_mesh_data == null:
 		return
-	node.pb_mesh_data.shape_id = shape_creator.shape_id
+	node.mb_mesh_data.shape_id = shape_creator.shape_id
 	if shape_creator.shape_id == &"trim":
 		# "On Wall records which way the strip was drawn" — a recorded flag on
 		# the created data (not an editable modal row): true when the drag was
 		# drawn on a vertical surface, so the strip lies flat on that wall.
 		shape_creator.values["on_wall"] = absf(shape_creator.plane_normal.dot(Vector3.UP)) < 0.5
 		_persist_trim_project_values(shape_creator.values)
-	node.pb_mesh_data.shape_params = shape_creator.values.duplicate()
-	node.pb_mesh_data.shape_edited = false
+	node.mb_mesh_data.shape_params = shape_creator.values.duplicate()
+	node.mb_mesh_data.shape_edited = false
 	node._update_collider()
 
 const TRIM_SETTING_PREFIX := "meshbuilder/trim/"
@@ -2922,7 +2922,7 @@ func _creation_abort(reason: String) -> void:
 ## Ends a "create" params session: the node stays either way (Apply keeps the
 ## edited params, Cancel restored the pre-modal ones), and the plugin hands
 ## the node over to element editing.
-func _finish_creation_session(node: PBMesh) -> void:
+func _finish_creation_session(node: MBMesh) -> void:
 	shape_creator.reset()
 	_clear_creation_hover()
 	_set_creation_hint("")
@@ -2938,7 +2938,7 @@ func _finish_creation_session(node: PBMesh) -> void:
 		# re-attach before selecting so add_node sees a live tree node.
 		if not node.is_inside_tree():
 			_attach_detached(node, get_editor_interface().get_edited_scene_root())
-	if PBShapeParams.commits_on_base_release(shape_creator.shape_id):
+	if MBShapeParams.commits_on_base_release(shape_creator.shape_id):
 		_creation_confirm()
 		return
 	# The Shapes tab is a mode: keep its shape armed for the next placement.
@@ -2949,18 +2949,18 @@ func _update_cursor_extents(screen_pos: Vector2) -> void:
 		return
 	# Billboard sprite raise/scale: same floating readout as shape creation.
 	if sprite_placer != null and sprite_placer.is_active() \
-			and (sprite_placer.state == PBSpritePlacer.State.RAISE or sprite_placer.state == PBSpritePlacer.State.SCALE):
+			and (sprite_placer.state == MBSpritePlacer.State.RAISE or sprite_placer.state == MBSpritePlacer.State.SCALE):
 		var sp_text := sprite_placer.get_extents_readout()
 		if not sp_text.is_empty():
 			_show_cursor_extents(sp_text, screen_pos)
 			return
 	# N-gon height drag: same treatment.
-	if ngon_drawer != null and ngon_drawer.is_active() and ngon_drawer.state == PBNgonDrawer.State.HEIGHT:
+	if ngon_drawer != null and ngon_drawer.is_active() and ngon_drawer.state == MBNgonDrawer.State.HEIGHT:
 		var ng_text := ngon_drawer.get_extents_readout()
 		if not ng_text.is_empty():
 			_show_cursor_extents(ng_text, screen_pos)
 			return
-	if shape_creator == null or not (shape_creator.state == PBShapeCreator.State.BASE or shape_creator.state == PBShapeCreator.State.HEIGHT or shape_creator.state == PBShapeCreator.State.OFFSET):
+	if shape_creator == null or not (shape_creator.state == MBShapeCreator.State.BASE or shape_creator.state == MBShapeCreator.State.HEIGHT or shape_creator.state == MBShapeCreator.State.OFFSET):
 		_cursor_extents_label.visible = false
 		return
 
@@ -2989,7 +2989,7 @@ func _show_cursor_extents(text: String, screen_pos: Vector2) -> void:
 func _forward_3d_draw_over_viewport(viewport_control: Control) -> void:
 	if _cursor_extents_label != null and _cursor_extents_label.is_inside_tree() and _cursor_extents_label.visible:
 		return
-	if shape_creator == null or not (shape_creator.state == PBShapeCreator.State.BASE or shape_creator.state == PBShapeCreator.State.HEIGHT or shape_creator.state == PBShapeCreator.State.OFFSET):
+	if shape_creator == null or not (shape_creator.state == MBShapeCreator.State.BASE or shape_creator.state == MBShapeCreator.State.HEIGHT or shape_creator.state == MBShapeCreator.State.OFFSET):
 		return
 	var text := shape_creator.get_cursor_extents_text()
 	if text.is_empty():
@@ -3024,11 +3024,11 @@ func _start_knife_tool() -> void:
 	if ngon_drawer.is_active():
 		_ngon_drawer_abort("switched to knife tool")
 	_clear_creation_hover()
-	var target_m: PBMesh = editor.active_mesh
+	var target_m: MBMesh = editor.active_mesh
 	var target_f: int = -1
 	if editor.selection != null and editor.selection.selected_face_count() > 0:
 		target_f = editor.selection.selected_faces[0]
-	ngon_drawer.arm(PBNgonDrawer.Mode.KNIFE, target_m, target_f)
+	ngon_drawer.arm(MBNgonDrawer.Mode.KNIFE, target_m, target_f)
 	_make_ngon_preview_node()
 	_update_editing_context()
 	_set_creation_hint("Knife: click on a face to place vertices, drag to move, Enter to cut (Esc cancels)")
@@ -3046,13 +3046,13 @@ func _start_ngon_shape_tool() -> void:
 		_ngon_drawer_abort("switched to n-gon tool")
 	_clear_creation_hover()
 	if editor.active_mesh != null:
-		var prev: PBMesh = editor.active_mesh
+		var prev: MBMesh = editor.active_mesh
 		editor.active_mesh = null
 		prev.update_gizmos()
 	var ed_sel := get_editor_interface().get_selection()
 	if ed_sel != null:
 		ed_sel.clear()
-	ngon_drawer.arm(PBNgonDrawer.Mode.NGON_EXTRUDE)
+	ngon_drawer.arm(MBNgonDrawer.Mode.NGON_EXTRUDE)
 	_make_ngon_preview_node()
 	_update_editing_context()
 	_set_creation_hint("N-Gon: click a surface to place vertices, drag to move, Enter to size height (Esc cancels)")
@@ -3066,28 +3066,28 @@ func _ngon_drawer_input(camera: Camera3D, event: InputEvent) -> int:
 		var ray_d: Vector3 = camera.project_ray_normal(event.position)
 
 		match ngon_drawer.state:
-			PBNgonDrawer.State.HEIGHT:
-				var ref := PBShapeCreator.height_reference_point(camera.global_position,
+			MBNgonDrawer.State.HEIGHT:
+				var ref := MBShapeCreator.height_reference_point(camera.global_position,
 					-camera.global_transform.basis.z, ray_o, ray_d, ngon_drawer.plane_point)
 				ngon_drawer.update_height_point(ref)
 				_refresh_ngon_preview()
 				_update_cursor_extents(event.position)
-			PBNgonDrawer.State.ARMED:
+			MBNgonDrawer.State.ARMED:
 				_update_creation_hover(camera, event.position)
 				var hit := _pick_creation_surface(camera, event.position)
 				if not hit.is_empty():
 					var pt: Vector3 = hit["point"]
-					var best_m: PBMesh = null
+					var best_m: MBMesh = null
 					var best_f: int = -1
 					var best_dist := INF
 					var scene_root := get_editor_interface().get_edited_scene_root()
 					if scene_root != null:
-						var pb_hit := PBPicking.scene_ray_pick(PBPicking.collect_pbmeshes(scene_root),
+						var mb_hit := MBPicking.scene_ray_pick(MBPicking.collect_pbmeshes(scene_root),
 								ray_o, ray_d, [ngon_drawer.preview_node])
-						if not pb_hit.is_empty():
-							best_dist = pb_hit["distance"]
-							best_m = pb_hit["mesh"]
-							best_f = pb_hit["face_index"]
+						if not mb_hit.is_empty():
+							best_dist = mb_hit["distance"]
+							best_m = mb_hit["mesh"]
+							best_f = mb_hit["face_index"]
 					var norm: Vector3 = hit.get("normal", Vector3.UP)
 					pt = ngon_drawer.snap_starting_point(pt, norm, best_m, best_f)
 					ngon_drawer.live_cursor_point = pt
@@ -3095,19 +3095,19 @@ func _ngon_drawer_input(camera: Camera3D, event: InputEvent) -> int:
 						ngon_drawer.preview_node.update_gizmos()
 					elif best_m != null:
 						best_m.update_gizmos()
-			PBNgonDrawer.State.DRAWING, PBNgonDrawer.State.DRAGGING_VERT:
+			MBNgonDrawer.State.DRAWING, MBNgonDrawer.State.DRAGGING_VERT:
 				# Knife mode: check if cursor hits an adjacent face to switch to
-				if ngon_drawer.mode == PBNgonDrawer.Mode.KNIFE and ngon_drawer.target_mesh != null:
-					var tm: PBMesh = ngon_drawer.target_mesh
-					if tm.pb_mesh_data != null:
-						var pick_res := PBPicking.pick_face(tm.pb_mesh_data, tm.global_transform, ray_o, ray_d)
+				if ngon_drawer.mode == MBNgonDrawer.Mode.KNIFE and ngon_drawer.target_mesh != null:
+					var tm: MBMesh = ngon_drawer.target_mesh
+					if tm.mb_mesh_data != null:
+						var pick_res := MBPicking.pick_face(tm.mb_mesh_data, tm.global_transform, ray_o, ray_d)
 						if pick_res.face_index >= 0 and pick_res.face_index != ngon_drawer.target_face_index:
 							if ngon_drawer.can_transition_to_face(pick_res.face_index):
 								ngon_drawer.switch_target_face(pick_res.face_index)
 
-				var hit := PBNgonDrawer.ray_plane_intersect(ray_o, ray_d,
+				var hit := MBNgonDrawer.ray_plane_intersect(ray_o, ray_d,
 					ngon_drawer.plane_point, ngon_drawer.plane_normal)
-				if hit != PBNgonDrawer.RAY_MISS:
+				if hit != MBNgonDrawer.RAY_MISS:
 					ngon_drawer.update_cursor_plane(hit)
 					if ngon_drawer.preview_node != null:
 						ngon_drawer.preview_node.update_gizmos()
@@ -3120,11 +3120,11 @@ func _ngon_drawer_input(camera: Camera3D, event: InputEvent) -> int:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			match ngon_drawer.state:
-				PBNgonDrawer.State.ARMED:
+				MBNgonDrawer.State.ARMED:
 					if _ngon_drawer_begin_from_surface(camera, event.position):
 						return AFTER_GUI_INPUT_STOP
 					return AFTER_GUI_INPUT_PASS
-				PBNgonDrawer.State.DRAWING:
+				MBNgonDrawer.State.DRAWING:
 					if ngon_drawer.hovered_vert_idx >= 0:
 						if ngon_drawer.hovered_vert_idx == 0 and ngon_drawer.points.size() >= 3:
 							_on_ngon_drawer_complete()
@@ -3141,11 +3141,11 @@ func _ngon_drawer_input(camera: Camera3D, event: InputEvent) -> int:
 						elif editor.active_mesh != null:
 							editor.active_mesh.update_gizmos()
 						return AFTER_GUI_INPUT_STOP
-				PBNgonDrawer.State.HEIGHT:
+				MBNgonDrawer.State.HEIGHT:
 					_on_ngon_drawer_confirm_height()
 					return AFTER_GUI_INPUT_STOP
 		else:
-			if ngon_drawer.state == PBNgonDrawer.State.DRAGGING_VERT:
+			if ngon_drawer.state == MBNgonDrawer.State.DRAGGING_VERT:
 				ngon_drawer.end_drag_vert()
 				if ngon_drawer.preview_node != null:
 					ngon_drawer.preview_node.update_gizmos()
@@ -3156,10 +3156,10 @@ func _ngon_drawer_input(camera: Camera3D, event: InputEvent) -> int:
 	if event is InputEventKey and event.pressed:
 		var k := event as InputEventKey
 		if k.keycode == KEY_ENTER or k.keycode == KEY_KP_ENTER:
-			if ngon_drawer.state == PBNgonDrawer.State.DRAWING or ngon_drawer.state == PBNgonDrawer.State.DRAGGING_VERT:
+			if ngon_drawer.state == MBNgonDrawer.State.DRAWING or ngon_drawer.state == MBNgonDrawer.State.DRAGGING_VERT:
 				_on_ngon_drawer_complete()
 				return AFTER_GUI_INPUT_STOP
-			elif ngon_drawer.state == PBNgonDrawer.State.HEIGHT:
+			elif ngon_drawer.state == MBNgonDrawer.State.HEIGHT:
 				_on_ngon_drawer_confirm_height()
 				return AFTER_GUI_INPUT_STOP
 		elif k.keycode == KEY_ESCAPE:
@@ -3178,19 +3178,19 @@ func _ngon_drawer_begin_from_surface(camera: Camera3D, screen_pos: Vector2) -> b
 
 	var ray_o: Vector3 = camera.project_ray_origin(screen_pos)
 	var ray_d: Vector3 = camera.project_ray_normal(screen_pos)
-	var best_mesh: PBMesh = null
+	var best_mesh: MBMesh = null
 	var best_face: int = -1
 	var best_dist := INF
 
 	var scene_root := get_editor_interface().get_edited_scene_root()
 	if scene_root != null:
-		var pb_hit := PBPicking.scene_ray_pick(PBPicking.collect_pbmeshes(scene_root), ray_o, ray_d)
-		if not pb_hit.is_empty():
-			best_dist = pb_hit["distance"]
-			best_mesh = pb_hit["mesh"]
-			best_face = pb_hit["face_index"]
+		var mb_hit := MBPicking.scene_ray_pick(MBPicking.collect_pbmeshes(scene_root), ray_o, ray_d)
+		if not mb_hit.is_empty():
+			best_dist = mb_hit["distance"]
+			best_mesh = mb_hit["mesh"]
+			best_face = mb_hit["face_index"]
 
-	if ngon_drawer.mode == PBNgonDrawer.Mode.KNIFE:
+	if ngon_drawer.mode == MBNgonDrawer.Mode.KNIFE:
 		if best_mesh == null or best_face < 0:
 			return false
 		var start_pt := ngon_drawer.snap_starting_point(hit["point"], hit["normal"], best_mesh, best_face)
@@ -3211,9 +3211,9 @@ func _make_ngon_preview_node() -> void:
 	if ngon_drawer.preview_node != null and is_instance_valid(ngon_drawer.preview_node):
 		return
 	var scene_root := get_editor_interface().get_edited_scene_root()
-	var node := PBMesh.new()
+	var node := MBMesh.new()
 	node.name = _unique_shape_name(scene_root, &"ngon")
-	node.pb_mesh_data = PBShapeGenerators.create_box(Vector3(0.01, 0.01, 0.01))
+	node.mb_mesh_data = MBShapeGenerators.create_box(Vector3(0.01, 0.01, 0.01))
 	node.mesh = null
 	scene_root.add_child(node)
 	node.owner = scene_root
@@ -3224,17 +3224,17 @@ func _refresh_ngon_preview() -> void:
 	var node := ngon_drawer.preview_node
 	if node == null:
 		return
-	if ngon_drawer.state == PBNgonDrawer.State.HEIGHT:
+	if ngon_drawer.state == MBNgonDrawer.State.HEIGHT:
 		var data := ngon_drawer.build_preview_data()
 		if data != null:
 			node.transform = Transform3D.IDENTITY
-			node.pb_mesh_data = data
+			node.mb_mesh_data = data
 			node.rebuild()
 	else:
 		node.mesh = null
 	node.update_gizmos()
 func _on_ngon_drawer_complete() -> void:
-	if ngon_drawer.mode == PBNgonDrawer.Mode.NGON_EXTRUDE:
+	if ngon_drawer.mode == MBNgonDrawer.Mode.NGON_EXTRUDE:
 		if ngon_drawer.points.size() < 3:
 			_set_creation_hint("N-Gon requires at least 3 vertices to extrude")
 			return
@@ -3244,14 +3244,14 @@ func _on_ngon_drawer_complete() -> void:
 				_make_ngon_preview_node()
 			_refresh_ngon_preview()
 			_set_creation_hint("move mouse to size height, click to confirm (Esc cancels)")
-	elif ngon_drawer.mode == PBNgonDrawer.Mode.KNIFE:
+	elif ngon_drawer.mode == MBNgonDrawer.Mode.KNIFE:
 		var target_m := ngon_drawer.target_mesh
 		var target_f := ngon_drawer.target_face_index
-		if target_m == null or target_m.pb_mesh_data == null or target_f < 0:
+		if target_m == null or target_m.mb_mesh_data == null or target_f < 0:
 			_ngon_drawer_abort("Knife target face lost")
 			return
 
-		var cmd := CmdMeshOp.new(target_m.pb_mesh_data, "Knife Cut", target_m)
+		var cmd := CmdMeshOp.new(target_m.mb_mesh_data, "Knife Cut", target_m)
 		if logger:
 			cmd.logger = logger
 
@@ -3291,10 +3291,10 @@ func _on_ngon_drawer_confirm_height() -> void:
 		_ngon_drawer_abort("Failed to finalize N-Gon")
 		return
 
-	var data: PBMeshData = res["data"]
+	var data: MBMeshData = res["data"]
 	var xf: Transform3D = res["transform"]
 	node.transform = xf
-	node.pb_mesh_data = data
+	node.mb_mesh_data = data
 	node._update_collider()
 
 	var scene_root := get_editor_interface().get_edited_scene_root()
@@ -3343,28 +3343,28 @@ func _ngon_drawer_abort(reason: String) -> void:
 ## converges on the same state through dock_mode_changed.
 func _enter_sprite_mode() -> void:
 	if material_dock != null and is_instance_valid(material_dock):
-		if material_dock.dock_mode == PBMaterialDock.DockMode.SPRITE:
+		if material_dock.dock_mode == MBMaterialDock.DockMode.SPRITE:
 			_start_sprite_tool()   # already the tab's mode: re-arm
 		else:
-			material_dock.set_dock_mode(PBMaterialDock.DockMode.SPRITE)
+			material_dock.set_dock_mode(MBMaterialDock.DockMode.SPRITE)
 	else:
 		_start_sprite_tool()
 
 func _dock_is_sprite_mode() -> bool:
 	return material_dock != null and is_instance_valid(material_dock) \
-		and material_dock.dock_mode == PBMaterialDock.DockMode.SPRITE
+		and material_dock.dock_mode == MBMaterialDock.DockMode.SPRITE
 
 func _dock_is_shape_mode() -> bool:
 	return material_dock != null and is_instance_valid(material_dock) \
-		and material_dock.dock_mode == PBMaterialDock.DockMode.SHAPE
+		and material_dock.dock_mode == MBMaterialDock.DockMode.SHAPE
 
 ## The dock tab switched: each mode arms/disarms what lives in the viewport.
 ## (The dock itself only flips UI sections; this is the tool-side mirror.)
-func _on_dock_mode_changed(new_mode: PBMaterialDock.DockMode) -> void:
+func _on_dock_mode_changed(new_mode: MBMaterialDock.DockMode) -> void:
 	match new_mode:
-		PBMaterialDock.DockMode.SPRITE:
+		MBMaterialDock.DockMode.SPRITE:
 			_start_sprite_tool()
-		PBMaterialDock.DockMode.SHAPE:
+		MBMaterialDock.DockMode.SHAPE:
 			if sprite_placer != null and sprite_placer.is_active():
 				sprite_placer.abort()
 			_arm_shape_mode_shape()
@@ -3374,7 +3374,7 @@ func _on_dock_mode_changed(new_mode: PBMaterialDock.DockMode) -> void:
 			# progress is allowed to finish).
 			if sprite_placer != null and sprite_placer.is_active():
 				sprite_placer.abort()
-			if shape_creator.is_active() and shape_creator.state == PBShapeCreator.State.ARMED:
+			if shape_creator.is_active() and shape_creator.state == MBShapeCreator.State.ARMED:
 				shape_creator.reset()
 				_set_creation_hint("")
 				_update_editing_context()
@@ -3386,7 +3386,7 @@ func _arm_shape_mode_shape() -> void:
 	if not _dock_is_shape_mode():
 		return
 	if shape_creator.is_active() and shape_creator.shape_id == _shape_mode_shape \
-			and shape_creator.state == PBShapeCreator.State.ARMED:
+			and shape_creator.state == MBShapeCreator.State.ARMED:
 		return
 	_on_shape_requested(_shape_mode_shape)
 
@@ -3418,7 +3418,7 @@ func _update_mode_banner() -> void:
 		mode_banner.set_hint("")
 		return
 	match material_dock.dock_mode:
-		PBMaterialDock.DockMode.SPRITE, PBMaterialDock.DockMode.SHAPE:
+		MBMaterialDock.DockMode.SPRITE, MBMaterialDock.DockMode.SHAPE:
 			mode_banner.set_hint("Select Material & UV tab to exit placement mode")
 		_:
 			mode_banner.set_hint("")
@@ -3441,7 +3441,7 @@ func _start_sprite_tool() -> void:
 	if logger:
 		logger.info("plugin", "Sprite placement armed — click a surface to place the selected sprite")
 
-func _on_sprite_placed(node: PBMesh) -> void:
+func _on_sprite_placed(node: MBMesh) -> void:
 	_clear_creation_hover()
 	_update_editing_context()
 	if _dock_is_sprite_mode():
@@ -3478,7 +3478,7 @@ func _on_trim_walls_requested() -> void:
 	if tool_overlay != null:
 		tool_overlay.panel_enabled = true
 		tool_overlay.open_params("Trim Walls Parameters",
-			PBShapeParams.get_param_defs(&"trim_walls"), trim_walls_tool.params)
+			MBShapeParams.get_param_defs(&"trim_walls"), trim_walls_tool.params)
 	_set_creation_hint("Trim Walls: click wall faces to trim (click again drops, Backspace undoes, Enter applies, Esc cancels)")
 	if logger:
 		logger.info("plugin", "Trim Walls armed — click wall faces to place the trim")
@@ -3491,7 +3491,7 @@ func _trim_walls_ensure_preview() -> void:
 		return
 	if _trim_walls_preview != null and is_instance_valid(_trim_walls_preview):
 		return
-	var node := PBMesh.new()
+	var node := MBMesh.new()
 	node.name = _unique_shape_name(scene_root, &"trim_walls")
 	scene_root.add_child(node)
 	# Owner BEFORE first draw — the editor attaches gizmos only to owned
@@ -3529,7 +3529,7 @@ func _trim_walls_input(camera: Camera3D, event: InputEvent) -> int:
 		var pick := _pick_wall_face(camera, event.position)
 		var prev_node := gizmo_plugin.trim_walls_hover_node
 		var prev_face := gizmo_plugin.trim_walls_hover_face
-		var new_node: PBMesh = pick.get("node")
+		var new_node: MBMesh = pick.get("node")
 		var new_face: int = pick.get("face", -1)
 		if new_node != prev_node or new_face != prev_face:
 			gizmo_plugin.trim_walls_hover_node = new_node
@@ -3542,7 +3542,7 @@ func _trim_walls_input(camera: Camera3D, event: InputEvent) -> int:
 
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		var pick := _pick_wall_face(camera, event.position)
-		var mesh: PBMesh = pick.get("node")
+		var mesh: MBMesh = pick.get("node")
 		var face: int = pick.get("face", -1)
 		if mesh != null and face >= 0:
 			# A double-click commits instead of toggling (spec: Enter,
@@ -3582,8 +3582,8 @@ func _trim_walls_input(camera: Camera3D, event: InputEvent) -> int:
 			return AFTER_GUI_INPUT_STOP
 	return AFTER_GUI_INPUT_PASS
 
-## Nearest VERTICAL PBMesh face under the cursor (floors/ceilings are not
-## walls). Returns {"node": PBMesh, "face": int} or {}.
+## Nearest VERTICAL MBMesh face under the cursor (floors/ceilings are not
+## walls). Returns {"node": MBMesh, "face": int} or {}.
 func _pick_wall_face(camera: Camera3D, screen_pos: Vector2) -> Dictionary:
 	var ray_o: Vector3 = camera.project_ray_origin(screen_pos)
 	var ray_d: Vector3 = camera.project_ray_normal(screen_pos)
@@ -3591,7 +3591,7 @@ func _pick_wall_face(camera: Camera3D, screen_pos: Vector2) -> Dictionary:
 	if scene_root == null:
 		return {}
 	# Walls only: a floor/ceiling face in front of a wall is looked through.
-	var hit := PBPicking.scene_ray_pick(PBPicking.collect_pbmeshes(scene_root), ray_o, ray_d,
+	var hit := MBPicking.scene_ray_pick(MBPicking.collect_pbmeshes(scene_root), ray_o, ray_d,
 			[_trim_walls_preview], func(h: Dictionary) -> bool:
 				return absf((h["normal"] as Vector3).dot(Vector3.UP)) <= 0.7)
 	if hit.is_empty():
@@ -3610,7 +3610,7 @@ func _sync_trim_walls_highlights() -> void:
 	gizmo_plugin.trim_walls_chosen.clear()
 	for w in trim_walls_tool.walls:
 		gizmo_plugin.trim_walls_chosen.append(w)
-	for node in PBPicking.collect_pbmeshes(get_editor_interface().get_edited_scene_root()):
+	for node in MBPicking.collect_pbmeshes(get_editor_interface().get_edited_scene_root()):
 		if is_instance_valid(node):
 			node.update_gizmos()
 
@@ -3619,7 +3619,7 @@ func _refresh_trim_walls_preview() -> void:
 	if _trim_walls_preview == null or not is_instance_valid(_trim_walls_preview):
 		return
 	var data := trim_walls_tool.build(_probe_floor_y, _probe_ceiling_y)
-	_trim_walls_preview.pb_mesh_data = data
+	_trim_walls_preview.mb_mesh_data = data
 	_trim_walls_preview.transform = Transform3D.IDENTITY
 	_trim_walls_preview.rebuild()
 	_trim_walls_preview.update_gizmos()
@@ -3656,15 +3656,15 @@ func _trim_walls_commit() -> void:
 	params["wall_paths"] = recorded
 	data.shape_params = params
 	if data.materials.is_empty():
-		var def := PBMeshData.get_default_material()
+		var def := MBMeshData.get_default_material()
 		if def != null:
 			data.materials.append(def)
 
 	var scene_root := get_editor_interface().get_edited_scene_root()
-	var node := PBMesh.new()
+	var node := MBMesh.new()
 	node.name = _unique_shape_name(scene_root, &"trim_walls")
 	node.transform = Transform3D.IDENTITY
-	node.pb_mesh_data = data
+	node.mb_mesh_data = data
 	node.rebuild()
 	node._update_collider()
 	var undo := get_undo_redo()
@@ -3712,8 +3712,8 @@ func _probe_surface_y(from: Vector3, dir: Vector3) -> float:
 	var exclude: Array[RID] = []
 	var scene_root := get_editor_interface().get_edited_scene_root()
 	if scene_root != null:
-		for node in PBPicking.collect_pbmeshes(scene_root):
-			var sid: StringName = node.pb_mesh_data.shape_id if node.pb_mesh_data != null else &""
+		for node in MBPicking.collect_pbmeshes(scene_root):
+			var sid: StringName = node.mb_mesh_data.shape_id if node.mb_mesh_data != null else &""
 			if node == _trim_walls_preview or sid == &"trim" or sid == &"trim_walls":
 				for child in node.get_children():
 					if child is StaticBody3D:
@@ -3752,19 +3752,19 @@ func _sprite_placer_input(camera: Camera3D, event: InputEvent) -> int:
 			var view_forward: Vector3 = -camera.global_transform.basis.z
 			if view_forward.dot(surface_hit["normal"]) > 0.0:
 				surface_hit["normal"] = -surface_hit["normal"]
-		if sprite_placer.state == PBSpritePlacer.State.ARMED:
+		if sprite_placer.state == MBSpritePlacer.State.ARMED:
 			if not surface_hit.is_empty():
 				_set_creation_hint("Sprite: click a surface to place the selected sprite (drag to pick a texture)")
 				_update_creation_hover(camera, event.position)
 			else:
 				_clear_creation_hover()
-		elif sprite_placer.state == PBSpritePlacer.State.TEXTURE_SELECT:
+		elif sprite_placer.state == MBSpritePlacer.State.TEXTURE_SELECT:
 			_clear_creation_hover()
 			_set_creation_hint("Sprite: scroll to select texture • release / click to confirm")
-		elif sprite_placer.state == PBSpritePlacer.State.RAISE:
+		elif sprite_placer.state == MBSpritePlacer.State.RAISE:
 			_clear_creation_hover()
 			_set_creation_hint("Sprite: mouse up/down to raise • click to lock angle")
-		elif sprite_placer.state == PBSpritePlacer.State.SCALE:
+		elif sprite_placer.state == MBSpritePlacer.State.SCALE:
 			_clear_creation_hover()
 			_set_creation_hint("Sprite: mouse left/right to scale • click to confirm placement")
 
@@ -3810,11 +3810,11 @@ func _on_param_changed(param_name: String, value: float) -> void:
 	elif _params_session_kind == "edit" and _params_edit_node != null \
 			and is_instance_valid(_params_edit_node):
 		_params_edit_values[param_name] = value
-		var data := _params_edit_node.pb_mesh_data
+		var data := _params_edit_node.mb_mesh_data
 		if data != null and data.shape_id == &"trim" and param_name == "depth":
 			_persist_trim_project_values(_params_edit_values)
 		var old_materials: Array[Material] = data.materials.duplicate() if data != null else []
-		var rebuilt := PBShapeParams.build(data.shape_id, _params_edit_values)
+		var rebuilt := MBShapeParams.build(data.shape_id, _params_edit_values)
 		if rebuilt != null:
 			rebuilt.shape_id = data.shape_id
 			rebuilt.shape_params = _params_edit_values.duplicate()
@@ -3830,11 +3830,11 @@ func _on_param_changed(param_name: String, value: float) -> void:
 				if not old_materials.is_empty() and old_materials[0] is StandardMaterial3D:
 					existing_tex = (old_materials[0] as StandardMaterial3D).albedo_texture
 
-				var smat := PBSpritePlacer.create_billboard_material(existing_tex, is_lit, is_billboard)
+				var smat := MBSpritePlacer.create_billboard_material(existing_tex, is_lit, is_billboard)
 				rebuilt.materials = [smat]
 				_params_edit_node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED if has_shadow else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
-			_params_edit_node.pb_mesh_data = rebuilt
+			_params_edit_node.mb_mesh_data = rebuilt
 			_params_edit_node.rebuild()
 			_params_edit_node.update_gizmos()
 
@@ -3876,7 +3876,7 @@ func _on_params_canceled() -> void:
 		if node != null and data != null:
 			data.shape_id = shape_creator.shape_id
 			data.shape_params = shape_creator.values.duplicate()
-			node.pb_mesh_data = data
+			node.mb_mesh_data = data
 			node.transform = shape_creator.placement_transform(data)
 		_finish_creation_session(node)
 		if logger:
@@ -3884,8 +3884,8 @@ func _on_params_canceled() -> void:
 	elif _params_session_kind == "edit":
 		if _params_edit_node != null and is_instance_valid(_params_edit_node) \
 				and _params_edit_snapshot != null:
-			PBCommand.restore_mesh_data(_params_edit_node.pb_mesh_data, _params_edit_snapshot)
-			if _params_edit_node.pb_mesh_data != null and _params_edit_node.pb_mesh_data.shape_id == &"sprite":
+			MBCommand.restore_mesh_data(_params_edit_node.mb_mesh_data, _params_edit_snapshot)
+			if _params_edit_node.mb_mesh_data != null and _params_edit_node.mb_mesh_data.shape_id == &"sprite":
 				_params_edit_node.cast_shadow = _params_edit_snapshot_cast_shadow
 			_params_edit_node.rebuild()
 			_params_edit_node.update_gizmos()
@@ -3909,7 +3909,7 @@ func _on_params_canceled() -> void:
 		tool_overlay.close_params()
 	_params_dispatch_underway = false
 
-func _start_bevel_modal(mesh: PBMesh, is_face_bevel: bool, faces: PackedInt32Array, edges: Array[PBEdge], max_amount: float, eff_amount: float, new_face_ids: PackedInt32Array, pre_snapshot: PBMeshData) -> void:
+func _start_bevel_modal(mesh: MBMesh, is_face_bevel: bool, faces: PackedInt32Array, edges: Array[MBEdge], max_amount: float, eff_amount: float, new_face_ids: PackedInt32Array, pre_snapshot: MBMeshData) -> void:
 	_params_session_kind = "bevel"
 	_bevel_session_node = mesh
 	_bevel_session_snapshot = pre_snapshot
@@ -3935,16 +3935,16 @@ func _start_bevel_modal(mesh: PBMesh, is_face_bevel: bool, faces: PackedInt32Arr
 func _update_bevel_preview() -> void:
 	if _bevel_session_node == null or _bevel_session_snapshot == null:
 		return
-	var mesh_data := _bevel_session_node.pb_mesh_data
-	PBCommand.restore_mesh_data(mesh_data, _bevel_session_snapshot)
+	var mesh_data := _bevel_session_node.mb_mesh_data
+	MBCommand.restore_mesh_data(mesh_data, _bevel_session_snapshot)
 	var result: Dictionary
 	if _bevel_session_is_face_bevel:
-		result = PBMeshOps.bevel_faces(mesh_data, _bevel_session_faces, op_bevel_amount, op_bevel_segments)
+		result = MBMeshOps.bevel_faces(mesh_data, _bevel_session_faces, op_bevel_amount, op_bevel_segments)
 	else:
-		var edge_ids := PBMeshOps.common_edge_ids(mesh_data, _bevel_session_edges)
-		if _bevel_session_mode == PBEditor.SelectMode.FACE and _bevel_session_faces.size() == _bevel_session_snapshot.faces.size():
-			edge_ids = PBMeshOps.face_edges_common_ids(mesh_data, _bevel_session_faces)
-		result = PBMeshOps.bevel_edges(mesh_data, edge_ids, op_bevel_amount, op_bevel_segments)
+		var edge_ids := MBMeshOps.common_edge_ids(mesh_data, _bevel_session_edges)
+		if _bevel_session_mode == MBEditor.SelectMode.FACE and _bevel_session_faces.size() == _bevel_session_snapshot.faces.size():
+			edge_ids = MBMeshOps.face_edges_common_ids(mesh_data, _bevel_session_faces)
+		result = MBMeshOps.bevel_edges(mesh_data, edge_ids, op_bevel_amount, op_bevel_segments)
 	if result.get("ok", false):
 		_bevel_session_last_new_faces = result.get("new_face_ids", PackedInt32Array())
 	# The preview IS the committed state (the commit snapshots it as-is).
@@ -3955,9 +3955,9 @@ func _commit_bevel_session() -> void:
 	if _bevel_session_node == null or _bevel_session_snapshot == null:
 		return
 	var node := _bevel_session_node
-	var data := node.pb_mesh_data
+	var data := node.mb_mesh_data
 	var before := _bevel_session_snapshot
-	var after := PBCommand.copy_mesh_data(data)
+	var after := MBCommand.copy_mesh_data(data)
 	var session_mode := _bevel_session_mode
 	var new_faces := _bevel_session_last_new_faces.duplicate()
 	# Tear the session down BEFORE touching mode/selection: the mode switch
@@ -3989,7 +3989,7 @@ func _commit_bevel_session() -> void:
 		editor.selection.clear_all()
 		node.clear_subgizmo_selection()
 		gizmo_plugin.element_editor.reset_side_faces()
-		editor.select_mode = PBEditor.SelectMode.FACE
+		editor.select_mode = MBEditor.SelectMode.FACE
 		_apply_selection_set(node, new_faces, PackedInt32Array())
 		node.update_gizmos()
 	else:
@@ -4018,13 +4018,13 @@ func _cancel_bevel_session() -> void:
 	_bevel_session_edges = []
 	_bevel_session_last_new_faces = PackedInt32Array()
 	if node != null and is_instance_valid(node) and snapshot != null:
-		PBCommand.restore_mesh_data(node.pb_mesh_data, snapshot)
+		MBCommand.restore_mesh_data(node.mb_mesh_data, snapshot)
 		node.rebuild()
 		node.update_gizmos()
 		editor.select_mode = session_mode
-		if session_mode == PBEditor.SelectMode.FACE:
+		if session_mode == MBEditor.SelectMode.FACE:
 			editor.selection.set_faces(faces)
-		elif session_mode == PBEditor.SelectMode.EDGE:
+		elif session_mode == MBEditor.SelectMode.EDGE:
 			editor.selection.set_edges(edges)
 	if tool_overlay != null:
 		tool_overlay.close_params()
@@ -4037,27 +4037,27 @@ func _on_edit_params_requested() -> void:
 	if _params_session_kind != "":
 		return
 	var mesh := editor.active_mesh
-	if mesh == null or mesh.pb_mesh_data == null:
+	if mesh == null or mesh.mb_mesh_data == null:
 		return
-	var data: PBMeshData = mesh.pb_mesh_data
+	var data: MBMeshData = mesh.mb_mesh_data
 	if data.shape_id == &"" or data.shape_edited:
 		if logger:
 			logger.warn("plugin", "Edit Params needs an unedited factory shape")
 		return
 	_params_session_kind = "edit"
 	_params_edit_node = mesh
-	_params_edit_snapshot = PBCommand.copy_mesh_data(data)
+	_params_edit_snapshot = MBCommand.copy_mesh_data(data)
 	_params_edit_snapshot_cast_shadow = mesh.cast_shadow
 	_params_edit_values = data.shape_params.duplicate()
 
 	tool_overlay.open_params("%s Parameters" % String(data.shape_id).capitalize(),
-		PBShapeParams.get_param_defs(data.shape_id), _params_edit_values)
+		MBShapeParams.get_param_defs(data.shape_id), _params_edit_values)
 
 func _commit_edit_params() -> void:
 	var node := _params_edit_node
-	if node == null or not is_instance_valid(node) or node.pb_mesh_data == null:
+	if node == null or not is_instance_valid(node) or node.mb_mesh_data == null:
 		return
-	var data := node.pb_mesh_data
+	var data := node.mb_mesh_data
 	data.shape_params = _params_edit_values.duplicate()
 	data.shape_edited = false
 	if data.shape_id == &"sprite":
@@ -4065,7 +4065,7 @@ func _commit_edit_params() -> void:
 		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_DOUBLE_SIDED if has_shadow else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 	var before := _params_edit_snapshot
-	var after := PBCommand.copy_mesh_data(data)
+	var after := MBCommand.copy_mesh_data(data)
 	var undo := get_undo_redo()
 	undo.create_action("Edit %s Params" % String(data.shape_id).capitalize(),
 		UndoRedo.MERGE_DISABLE, node)
@@ -4083,7 +4083,7 @@ func _commit_edit_params() -> void:
 	if logger:
 		logger.info("plugin", "Shape parameters committed")
 
-func _unique_detached_name(mesh: PBMesh) -> String:
+func _unique_detached_name(mesh: MBMesh) -> String:
 	var parent := mesh.get_parent()
 	var base := mesh.name + "_Detached"
 	if parent == null or parent.get_node_or_null(NodePath(base)) == null:
@@ -4094,20 +4094,20 @@ func _unique_detached_name(mesh: PBMesh) -> String:
 	return "%s%d" % [base, i]
 
 ## Undo/redo payload: swap a mesh's whole data from a snapshot.
-func _restore_mesh_snapshot(target: Variant, snapshot: PBMeshData) -> void:
-	var mesh: PBMesh = null
-	if target is PBMesh:
-		mesh = target as PBMesh
+func _restore_mesh_snapshot(target: Variant, snapshot: MBMeshData) -> void:
+	var mesh: MBMesh = null
+	if target is MBMesh:
+		mesh = target as MBMesh
 	elif target is int:
-		mesh = instance_from_id(target) as PBMesh
-	if mesh == null or not is_instance_valid(mesh) or mesh.pb_mesh_data == null:
+		mesh = instance_from_id(target) as MBMesh
+	if mesh == null or not is_instance_valid(mesh) or mesh.mb_mesh_data == null:
 		return
-	PBCommand.restore_mesh_data(mesh.pb_mesh_data, snapshot)
+	MBCommand.restore_mesh_data(mesh.mb_mesh_data, snapshot)
 	mesh.rebuild()
 	mesh.update_gizmos()
 	if logger:
 		logger.info("undo", "snapshot restored on %s: V=%d F=%d (render rebuilt)" % [
-			mesh.name, mesh.pb_mesh_data.positions.size(), mesh.pb_mesh_data.faces.size()])
+			mesh.name, mesh.mb_mesh_data.positions.size(), mesh.mb_mesh_data.faces.size()])
 
 func _attach_detached(node: Node, parent: Node) -> void:
 	if parent == null or not is_instance_valid(parent):

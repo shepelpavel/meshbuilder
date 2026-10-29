@@ -1,0 +1,96 @@
+## MBCsg — Constructive Solid Geometry Boolean operations for MeshBuilder.
+##
+## Supports Union, Subtract, and Intersect operations between two MBMeshData operands
+## using Godot's CSG kernel with clean conversion back to MBMeshData.
+@tool
+class_name MBCsg
+extends RefCounted
+
+enum BooleanOp {
+	UNION,
+	INTERSECT,
+	SUBTRACT,
+}
+
+## Performs a CSG Boolean operation between mesh_a and mesh_b (with relative transform applied to b).
+## Returns a Dictionary with:
+## - "success": bool
+## - "mesh_data": MBMeshData (on success)
+## - "error": String (on failure)
+static func perform_boolean(mesh_a: MBMeshData, mesh_b: MBMeshData, op: BooleanOp,
+		rel_transform_b: Transform3D = Transform3D.IDENTITY,
+		tree: SceneTree = null) -> Dictionary:
+	if mesh_a == null or mesh_a.faces.is_empty():
+		return {"success": false, "error": "Mesh A is empty or null"}
+	if mesh_b == null or mesh_b.faces.is_empty():
+		return {"success": false, "error": "Mesh B is empty or null"}
+
+	# Pre-flight watertightness check
+	var boundary_a := MBSelectionOps.select_boundary_edges(mesh_a)
+	var boundary_b := MBSelectionOps.select_boundary_edges(mesh_b)
+	if not boundary_a.is_empty():
+		return {"success": false, "error": "Mesh A is non-manifold (has %d open boundary edges)" % boundary_a.size()}
+	if not boundary_b.is_empty():
+		return {"success": false, "error": "Mesh B is non-manifold (has %d open boundary edges)" % boundary_b.size()}
+
+	# A CSG operand is ONE mesh, which holds at most 256 surfaces (one per
+	# material): past that the extra faces would silently drop out of the
+	# result. Refuse instead of returning a mesh with holes.
+	for operand in [["A", mesh_a], ["B", mesh_b]]:
+		if (operand[1] as MBMeshData).surface_count() > MBMeshData.MAX_SURFACES_PER_MESH:
+			return {"success": false, "error": "Mesh %s has more than %d materials (painted faces each count as one) — too many for a boolean" % [operand[0], MBMeshData.MAX_SURFACES_PER_MESH]}
+
+	var csg := CSGCombiner3D.new()
+
+	var csg_a := CSGMesh3D.new()
+	csg_a.mesh = mesh_a.to_array_mesh()
+	csg.add_child(csg_a)
+
+	var csg_b := CSGMesh3D.new()
+	csg_b.mesh = mesh_b.to_array_mesh()
+	csg_b.transform = rel_transform_b
+
+	match op:
+		BooleanOp.UNION:
+			csg_b.operation = CSGShape3D.OPERATION_UNION
+		BooleanOp.INTERSECT:
+			csg_b.operation = CSGShape3D.OPERATION_INTERSECTION
+		BooleanOp.SUBTRACT:
+			csg_b.operation = CSGShape3D.OPERATION_SUBTRACTION
+
+	csg.add_child(csg_b)
+
+	# CSG shapes require being inside the scene tree to evaluate their brushes
+	var cleanup_parent: Node = null
+	if tree != null and tree.root != null:
+		tree.root.add_child(csg)
+		cleanup_parent = tree.root
+	elif Engine.get_main_loop() is SceneTree:
+		var st := Engine.get_main_loop() as SceneTree
+		if st.root != null:
+			st.root.add_child(csg)
+			cleanup_parent = st.root
+
+	csg._update_shape()
+	var baked: ArrayMesh = csg.bake_static_mesh()
+
+	if cleanup_parent != null:
+		cleanup_parent.remove_child(csg)
+	csg_a.free()
+	csg_b.free()
+	csg.free()
+
+	if baked == null or baked.get_surface_count() == 0:
+		return {"success": false, "error": "CSG operation produced empty geometry"}
+
+	var dummy := MeshInstance3D.new()
+	dummy.mesh = baked
+	var converted: MBMesh = MBObjectOps.probuilderize(dummy)
+	dummy.free()
+
+	if converted == null or converted.mb_mesh_data == null:
+		return {"success": false, "error": "Failed to convert CSG result to MBMeshData"}
+
+	var result_data: MBMeshData = converted.mb_mesh_data
+	converted.free()
+	return {"success": true, "mesh_data": result_data}
