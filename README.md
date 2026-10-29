@@ -1,13 +1,73 @@
 # MeshBuilder
 
+In-editor 3D modeling for Godot: shape primitives, vertex/edge/face editing, mesh operations,
+UV editor, CSG booleans. Fork of [PoiBuilder](https://github.com/Francesco149/poibuilder) (MIT),
+trimmed down to prop modeling.
+
+Русское описание — ниже, раздел «По-русски».
+
+## English
+
+**What it is.** A Godot editor plugin that turns the 3D viewport into a modeling tool. Draw a
+primitive, drag its vertices, extrude a face, unwrap it, assign a material — without leaving the
+editor and without round-tripping through Blender. It is a fork of PoiBuilder stripped of everything
+unrelated to prop modeling: texture splatting and face painting, PBM export and the retro/PSP
+pipeline, particle emitters, animated UV scrolling and the bundled offline documentation are gone.
+
+### Features
+
+**Shape creation.** 14 primitives — cube, stairs, curved stairs, prism, cylinder, plane, door, pipe,
+cone, sprite, arch, sphere, torus, n-gon. Drag the base on any surface or on the grid, move the mouse
+to set the height, click to confirm. Shape parameters stay re-editable until you start editing the
+geometry by hand.
+
+**Mesh editing.** Object / Vertex / Edge / Face modes with marquee selection and selection conversion
+between modes. Operations: extrude, inset, multi-segment bevel, loop cut, knife, subdivide, merge,
+weld, bridge, connect, collapse, fill hole, detach, delete. Everything with live previews and full
+undo.
+
+**Materials and UV.** Project material palette with per-face assignment, tiling / offset / rotation /
+flips and per-face tint. A dedicated 2D UV editor with UV1 and UV2 channels, box unwrap, LightmapGI
+unwrap, island selection and snapping.
+
+**Extras.** CSG booleans (union / subtract / intersect), `MeshBuilderize` to turn a `MeshInstance3D`
+or a CSG node into an editable mesh, billboard sprite placement, a snapping grid.
+
+### Requirements
+
+Godot 4.7 or newer. Pure GDScript — no GDExtension, no C#/.NET build, no native binaries.
+
+### Install
+
+Copy the `addons/meshbuilder` folder into your project and enable **MeshBuilder** in
+`Project → Project Settings → Plugins`.
+
+The UI lives in the editor's **bottom panel** as three tabs — *MeshBuilder* (toolbar),
+*Material & UV* (materials, shapes, sprites) and *UV Editor* (2D unwrapping) — so the plugin takes
+neither rows from the 3D viewport nor the right-hand dock column.
+
+### No file export
+
+The modern GLB exporter shared its dialog and its module with the PBM format and the retro pipeline,
+so the whole export channel was dropped instead of carving two formats out of three. Meshes live in
+the scene as `MBMesh` nodes (a `MeshInstance3D` whose geometry is built in `_ready`, collision
+included). Need a file? The generated `ArrayMesh` can be saved from the inspector as a `.tres`.
+
+### License
+
+MIT — see `LICENSE`. The original PoiBuilder copyright is kept next to the fork's. Internal names are
+renamed for MeshBuilder (`mb_*` files, `MB*` classes); when porting a fix from upstream remember the
+same code is called `pb_*` / `PB*` there.
+
+## По-русски
+
 Редактор геометрии внутри редактора Godot: примитивы drag-to-create, правка вершин/рёбер/граней,
 операции меша, UV-редактор, булевы через CSG.
 
-Форк [PoiBuilder](https://github.com/Francesco149/poibuilder) (MIT, © 2026 headpats), урезанный под
-моделинг пропов: убраны сплаты и роспись по граням, экспорт PBM и ретро-пайплайн, партиклы,
-анимированный UV-скролл и офлайн-документация.
+Форк PoiBuilder (MIT, © 2026 headpats), урезанный под моделинг пропов: убраны сплаты и роспись по
+граням, экспорт PBM и ретро-пайплайн, партиклы, анимированный UV-скролл и офлайн-документация.
 
-## Что умеет
+### Что умеет
 
 **Создание геометрии.** 14 примитивов (куб, лестница, винтовая лестница, призма, цилиндр, плоскость,
 дверь, труба, конус, спрайт, арка, сфера, тор, n-угольник) с рисованием по любой поверхности или по
@@ -25,11 +85,11 @@ bridge, connect, collapse, fill hole, detach, delete. Всё с превью и 
 **Прочее.** CSG-булевы (union / subtract / intersect), `MeshBuilderize` — превратить `MeshInstance3D`
 или CSG в редактируемый меш, спрайты-биллборды, сетка с привязками.
 
-## Требования
+### Требования
 
 Godot 4.7 или новее. Чистый GDScript, без GDExtension, C# и нативных бинарников.
 
-## Установка
+### Установка
 
 Плагин вендорится в проект игры: репозиторий плагина — источник правды, в `addons/` игры лежит снимок.
 
@@ -45,16 +105,18 @@ rsync -a --delete \
 
 Включить в `Проект → Настройки проекта → Плагины → MeshBuilder`.
 
-Всё живёт в **нижней панели** отдельными вкладками — «MeshBuilder» (тулбар), «Material & UV» (материалы, шейпы, спрайты) и «UV Editor» (2D-развёртка): так плагин не отъедает ни строки у 3D-вьюпорта, ни правую колонку доков.
+Всё живёт в **нижней панели** отдельными вкладками — «MeshBuilder» (тулбар), «Material & UV»
+(материалы, шейпы, спрайты) и «UV Editor» (2D-развёртка): так плагин не отъедает ни строки у
+3D-вьюпорта, ни правую колонку доков.
 
-## Экспорта в файл нет
+### Экспорта в файл нет
 
 Современный GLB жил в том же диалоге и том же модуле, что PBM и ретро-пайплайн, поэтому канал
 выгрузки убран целиком. Меши живут в сцене нодами `MBMesh` (`MeshInstance3D`, геометрия собирается в
 `_ready`, коллизия генерируется там же). Нужен файл — собранный `ArrayMesh` сохраняется из инспектора
 (`Save as .tres`).
 
-## Лицензия
+### Лицензия
 
 MIT — см. `LICENSE`: оригинальный копирайт PoiBuilder сохранён, добавлен копирайт форка. Внутренние
 имена переименованы под MeshBuilder (`mb_*` файлы, `MB*` классы) — при переносе фиксов из апстрима
