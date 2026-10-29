@@ -576,28 +576,28 @@ func _handle_action_key(key_event: InputEventKey) -> int:
 	var editing := editor.is_editing()
 	var sp_active := sprite_placer != null and sprite_placer.is_active()
 	var mb_context := editing or editor.active_mesh != null or shape_creator.is_active() or ngon_drawer.is_active() or sp_active
+	var node_selected := editor.active_mesh != null
 	match action:
-		# Selection modes need a MeshBuilder context (if we consumed H/J/K with
-		# nothing MeshBuilder-related active, scene-tree search fields would
-		# lose the letters to a no-op).
+		# Selection modes only when a MeshBuilder mesh is selected (H/J/K/1/2/3
+		# with nothing selected must reach the scene tree and other fields).
 		&"select_vertex":
-			if not mb_context:
+			if not node_selected:
 				return AFTER_GUI_INPUT_PASS
 			editor.select_mode = MBEditor.SelectMode.VERTEX
 		&"select_edge":
-			if not mb_context:
+			if not node_selected:
 				return AFTER_GUI_INPUT_PASS
 			editor.select_mode = MBEditor.SelectMode.EDGE
 		&"select_face":
-			if not mb_context:
+			if not node_selected:
 				return AFTER_GUI_INPUT_PASS
 			editor.select_mode = MBEditor.SelectMode.FACE
 		&"select_texture":
-			if not mb_context:
+			if not node_selected:
 				return AFTER_GUI_INPUT_PASS
 			editor.select_mode = MBEditor.SelectMode.TEXTURE
 		&"select_object":
-			if not mb_context:
+			if not node_selected:
 				return AFTER_GUI_INPUT_PASS
 			editor.select_mode = MBEditor.SelectMode.OBJECT
 		&"cycle_space":
