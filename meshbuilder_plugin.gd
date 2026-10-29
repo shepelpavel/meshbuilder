@@ -1796,6 +1796,16 @@ func _on_operation_requested(op_name: String) -> void:
 			result = MBMeshOps.merge_faces(mesh_data, selection.selected_faces.duplicate())
 		"delete_faces":
 			result = MBMeshOps.delete_faces(mesh_data, selection.selected_faces.duplicate())
+		"delete_selection":
+			var del_ids: PackedInt32Array
+			match editor.select_mode:
+				MBEditor.SelectMode.VERTEX:
+					del_ids = selection.selected_vertices.duplicate()
+				MBEditor.SelectMode.EDGE:
+					del_ids = _edge_ids_for_op(mesh_data)
+				_:
+					del_ids = selection.selected_faces.duplicate()
+			result = MBMeshOps.delete_elements(mesh_data, int(editor.select_mode), del_ids)
 		"weld_vertices":
 			result = MBMeshOps.weld_vertices(mesh_data, selection.selected_vertices.duplicate())
 		"extrude_edges":
@@ -1961,6 +1971,7 @@ const OP_ACTION_NAMES := {
 	"subdivide_faces": "Subdivide Faces",
 	"merge_faces": "Merge Faces",
 	"delete_faces": "Delete Faces",
+	"delete_selection": "Delete Selection",
 	"detach_faces": "Detach Faces",
 	"extrude_edges": "Extrude Edges",
 	"insert_edge_loop": "Insert Edge Loop",

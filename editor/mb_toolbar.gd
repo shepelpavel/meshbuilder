@@ -208,7 +208,7 @@ func _build_ui() -> void:
 	_make_op_button("Subdiv", "subdivide_faces", "Subdivide the selected quads into 4", "icon_subdivide.svg")
 	_make_op_button("Weld", "weld_vertices", "Weld the selected vertices together at their centroid", "icon_weld.svg")
 	_make_op_button("Detach", "detach_faces", "Detach the selected faces into a new MBMesh node", "icon_detach.svg")
-	_make_op_button("Del", "delete_faces", "Delete the selected faces", "icon_delete.svg")
+	_make_op_button("Del", "delete_selection", "Delete selection: faces, edges or vertices (Shift+X)", "icon_delete.svg")
 
 
 	# Row 3 Extended Tools: Advanced Selection, Object Ops, CSG Booleans, Smoothing
@@ -384,7 +384,7 @@ func _update_row_layout() -> void:
 	_add_row([
 		[
 			_op_buttons["extrude_faces"], _op_buttons["inset_faces"], _op_buttons["bevel_edges"],
-			_op_buttons["subdivide_faces"], _op_buttons["merge_faces"], _op_buttons["delete_faces"],
+			_op_buttons["subdivide_faces"], _op_buttons["merge_faces"], _op_buttons["delete_selection"],
 		],
 		[
 			_op_buttons["knife_tool"], _op_buttons["insert_edge_loop"], _op_buttons["connect_edges"],
@@ -573,8 +573,10 @@ func _on_selection_info_changed(_arg = null) -> void:
 		_op_buttons["weld_vertices"].disabled = not (in_vertex and verts_selected)
 	if _op_buttons.has("detach_faces"):
 		_op_buttons["detach_faces"].disabled = not (in_face and faces_selected)
-	if _op_buttons.has("delete_faces"):
-		_op_buttons["delete_faces"].disabled = not (in_face and faces_selected)
+	if _op_buttons.has("delete_selection"):
+		_op_buttons["delete_selection"].disabled = not (in_face and faces_selected) \
+			and not (in_edge and edges_selected) \
+			and not (in_vertex and verts_selected)
 	# Extended Tools (Row 3)
 	var has_mesh := editor != null and editor.active_mesh != null
 	var any_elem_selected := faces_selected or edges_selected or (sel != null and sel.selected_vertex_count() > 0)

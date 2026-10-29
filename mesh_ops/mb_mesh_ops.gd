@@ -368,6 +368,47 @@ static func delete_faces(mesh_data: MBMeshData, face_ids: PackedInt32Array) -> D
 		removed[fi] = true
 	return _replace_faces(mesh_data, removed, [], [])
 
+## Deletes whatever is selected: faces in face mode, faces touching the
+## selected edges in edge mode, faces touching the selected vertices in vertex
+## mode. `mode` is MBEditor.SelectMode.
+static func delete_elements(mesh_data: MBMeshData, mode: int, element_ids: PackedInt32Array) -> Dictionary:
+	if element_ids.is_empty():
+		return _fail("Delete: nothing selected")
+	var face_ids := PackedInt32Array()
+	match mode:
+		1:
+			var vertex_set := {}
+			for v in element_ids:
+				vertex_set[v] = true
+			for fi in mesh_data.face_count():
+				var face := mesh_data.faces[fi]
+				for idx in face.get_indexes():
+					if vertex_set.has(idx):
+						face_ids.append(fi)
+						break
+		2:
+			var edges := mesh_data.get_common_edges()
+			var edge_pairs := {}
+			for e in element_ids:
+				if e < 0 or e >= edges.size():
+					continue
+				var ed := edges[e]
+				edge_pairs[Vector2i(mini(ed.a, ed.b), maxi(ed.a, ed.b))] = true
+			for fi in mesh_data.face_count():
+				var face := mesh_data.faces[fi]
+				var loop := face.get_indexes()
+				for i in loop.size():
+					var a := loop[i]
+					var b := loop[(i + 1) % loop.size()]
+					if edge_pairs.has(Vector2i(mini(a, b), maxi(a, b))):
+						face_ids.append(fi)
+						break
+		_:
+			face_ids = element_ids.duplicate()
+	if face_ids.is_empty():
+		return _fail("Delete: nothing to remove")
+	return delete_faces(mesh_data, face_ids)
+
 ## Removes the selected faces from `mesh_data` and returns them as a new
 ## MBMeshData (positions/attributes copied, welds rebuilt).
 static func detach_faces(mesh_data: MBMeshData, face_ids: PackedInt32Array) -> Dictionary:
