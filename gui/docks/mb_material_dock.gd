@@ -457,9 +457,12 @@ func set_dock_mode(new_mode: DockMode) -> void:
 
 func _set_dock_mode(new_mode: DockMode) -> void:
 	dock_mode = new_mode
-	_btn_mode_mat.button_pressed = (dock_mode == DockMode.MATERIAL)
-	_btn_mode_sprite.button_pressed = (dock_mode == DockMode.SPRITE)
-	_btn_mode_shape.button_pressed = (dock_mode == DockMode.SHAPE)
+	if _btn_mode_mat != null:
+		_btn_mode_mat.button_pressed = (dock_mode == DockMode.MATERIAL)
+	if _btn_mode_sprite != null:
+		_btn_mode_sprite.button_pressed = (dock_mode == DockMode.SPRITE)
+	if _btn_mode_shape != null:
+		_btn_mode_shape.button_pressed = (dock_mode == DockMode.SHAPE)
 
 	_uv_and_tint_section.visible = (dock_mode == DockMode.MATERIAL)
 	_sprite_tool_section.visible = (dock_mode == DockMode.SPRITE)
