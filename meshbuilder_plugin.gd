@@ -72,10 +72,10 @@ const PAINT_STROKE_MAX_INTERP_STEPS := 64
 ## Time of the last press seen in the viewport, for click-recency checks.
 var _last_press_msec: int = -10000
 
-## Invisible anchor used to locate the 3D editor's toolbar containers; added
-## to CONTAINER_SPATIAL_EDITOR_MENU, walked for the placement below, then
-## removed again.
-var _toolbar_anchor: Control = null
+## Toolbar host in the bottom panel and its tab button (the same panel the
+## 2D UV Editor uses) — keeps the 3D view free of plugin rows.
+var _toolbar_panel: Control = null
+var _toolbar_bottom_button: Button = null
 
 # ==============================================================================
 # Plugin Lifecycle
@@ -84,7 +84,7 @@ var _toolbar_anchor: Control = null
 func _get_plugin_name() -> String:
 	return "MeshBuilder"
 
-const VERSION := "0.1.1"
+const VERSION := "0.1.2"
 
 func _enter_tree():
 	logger.info("plugin", "MeshBuilder v%s entering tree" % VERSION)
@@ -190,7 +190,7 @@ func _enter_tree():
 				toolbar.set_rows_mode(int(ed_settings.get_setting("meshbuilder/toolbar/rows_mode")))
 			elif ed_settings.has_setting("meshbuilder/toolbar/two_rows"):
 				toolbar.set_two_rows(bool(ed_settings.get_setting("meshbuilder/toolbar/two_rows")))
-	_add_toolbar_row_below_3d_toolbar()
+	_mount_toolbar_in_bottom_panel()
 	toolbar.sync_grid(grid)
 	# Tool overlay panel floating in the 3D viewport (readouts + params
 	# modal; logging goes to the Godot console via MBLogger).
@@ -312,11 +312,15 @@ func _exit_tree():
 			toolbar.get_parent().remove_child(toolbar)
 			toolbar.queue_free()
 		toolbar = null
-	if _toolbar_anchor:
-		if is_instance_valid(_toolbar_anchor) and _toolbar_anchor.get_parent() != null:
-			remove_control_from_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar_anchor)
-			_toolbar_anchor.queue_free()
-		_toolbar_anchor = null
+	if _toolbar_panel != null and _toolbar_bottom_button != null:
+		if is_instance_valid(_toolbar_panel):
+			if Engine.is_editor_hint():
+				remove_control_from_bottom_panel(_toolbar_panel)
+			if _toolbar_panel.get_parent() != null:
+				_toolbar_panel.get_parent().remove_child(_toolbar_panel)
+			_toolbar_panel.queue_free()
+		_toolbar_panel = null
+		_toolbar_bottom_button = null
 	# Remove overlay panel
 	if tool_overlay:
 		if is_instance_valid(tool_overlay):
@@ -369,48 +373,59 @@ var _n3d_editor: Node = null
 func toolbar_has_3d_editor() -> bool:
 	return _n3d_editor != null and is_instance_valid(_n3d_editor)
 
-## Adds the toolbar as its own row below the 3D scene toolbar.
+## Mounts the toolbar as a tab in the editor's BOTTOM panel (the same place the
+## 2D UV Editor lives) instead of a row under the 3D scene toolbar: a full
+## plugin toolbar above the viewport ate three or four rows of the 3D view.
 ##
-## The plugin API only offers a slot INSIDE the engine's toolbar flow, so a
-## throwaway anchor control is added there and walked to find the real
-## layout: anchor → context panel → HFlowContainer → toolbar MarginContainer
-## → layout container. In Godot 4.7 the Node3DEditor IS the layout VBox
-## (`VBoxContainer *vbc = this;` — get_class() still reports
-## "Node3DEditor", so class-name searches for a VBox miss it and must never
-## be used; one such search landed the row inside a hidden snap dialog).
-## Inserting our row into the margin's parent container as a sibling AFTER
-## the engine toolbar makes the engine's own VBox layout give us a
-## full-width row and push the viewports down, whatever the version.
-func _add_toolbar_row_below_3d_toolbar() -> void:
-	_toolbar_anchor = Control.new()
-	_toolbar_anchor.name = "MBToolbarAnchor"
-	add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar_anchor)
+## The tab is opened once on startup so the tools are visible right away; after
+## that the editor remembers the panel state like any other bottom panel.
+func _mount_toolbar_in_bottom_panel() -> void:
+	_n3d_editor = _find_3d_editor()
+	if _n3d_editor == null:
+		logger.warn("plugin", "Node3DEditor not found — the tool bridge will stay inactive")
 
-	var flow: Node = _find_ancestor_of_class(_toolbar_anchor, "HFlowContainer")
-	_n3d_editor = _find_ancestor_of_class(_toolbar_anchor, "Node3DEditor")
-	var layout: Container = null
-	if flow != null and flow.get_parent() is Container:
-		var margin: Container = flow.get_parent()
-		if margin.get_parent() is Container:
-			layout = margin.get_parent()
-	if layout == null or _n3d_editor == null:
-		logger.warn("plugin", "Could not locate the 3D editor toolbar layout — toolbar placed inside the scene toolbar")
-		add_control_to_container(CONTAINER_SPATIAL_EDITOR_MENU, toolbar)
-		remove_control_from_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar_anchor)
-		_toolbar_anchor.queue_free()
-		_toolbar_anchor = null
+	var host := MarginContainer.new()
+	host.name = "MeshBuilderToolbar"
+	host.add_theme_constant_override("margin_left", 6)
+	host.add_theme_constant_override("margin_right", 6)
+	host.add_theme_constant_override("margin_top", 2)
+	host.add_theme_constant_override("margin_bottom", 2)
+	# A narrow bottom panel would clip the rows: let them scroll sideways
+	# instead of squeezing the viewport-sized toolbar into the panel width.
+	var scroller := ScrollContainer.new()
+	scroller.name = "ToolbarScroll"
+	scroller.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroller.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroller.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroller.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroller.add_child(toolbar)
+	host.add_child(scroller)
+	_toolbar_panel = host
+	if not Engine.is_editor_hint():
 		return
+	_toolbar_bottom_button = add_control_to_bottom_panel(host, "MeshBuilder")
+	if _toolbar_bottom_button != null:
+		_toolbar_bottom_button.tooltip_text = "MeshBuilder: инструменты моделинга"
+	var editor_interface := get_editor_interface()
+	if editor_interface != null and editor_interface.has_method("make_bottom_panel_item_visible"):
+		editor_interface.call_deferred("make_bottom_panel_item_visible", host)
+	logger.info("plugin", "Toolbar mounted in the bottom panel")
 
-	layout.add_child(toolbar)
-	var margin: Node = flow.get_parent()
-	layout.move_child(toolbar, mini(margin.get_index() + 1, layout.get_child_count() - 1))
-
-	# The anchor's job (locating the layout) is done; remove it so it does
-	# not leave an invisible entry in the context toolbar.
-	remove_control_from_container(CONTAINER_SPATIAL_EDITOR_MENU, _toolbar_anchor)
-	_toolbar_anchor.queue_free()
-	_toolbar_anchor = null
-	logger.info("plugin", "Toolbar added as a row below the 3D scene toolbar")
+## Finds the Node3DEditor that owns the 3D viewports, by walking the editor's
+## base control. Returns the first one (the main screen); the tool bridge only
+## needs it to hijack the Move/Rotate/Scale buttons.
+func _find_3d_editor() -> Node:
+	var base := get_editor_interface().get_base_control()
+	if base == null:
+		return null
+	var queue: Array[Node] = [base]
+	while not queue.is_empty():
+		var node: Node = queue.pop_front()
+		if node.get_class() == "Node3DEditor":
+			return node
+		for child in node.get_children():
+			queue.append(child)
+	return null
 
 ## Parents `control` to the first 3D editor viewport so it floats over the
 ## scene. The Node3DEditorViewport is a plain Control (no container sort), so
@@ -426,14 +441,6 @@ func _add_overlay_to_3d_viewport(control: Control) -> void:
 		logger.warn("plugin", "Unexpected 3D viewport layout — tool overlay not created")
 		return
 	host.add_child(control)
-
-func _find_ancestor_of_class(node: Node, klass: String) -> Node:
-	var current := node
-	while current != null:
-		if current.get_class() == klass:
-			return current
-		current = current.get_parent()
-	return null
 
 # ==============================================================================
 # EditorPlugin Overrides
