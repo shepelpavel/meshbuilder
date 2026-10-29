@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://mmxrif73m78c"
-path="res://.godot/imported/icon_collapse.svg-899df8ccadac7944d744baceec9cf8c5.ctex"
+uid="uid://guagk1widmuh"
+path="res://.godot/imported/icon_tunnel.svg-ba764ed09aa50b049ab3cb1cbc4fa366.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://addons/meshbuilder/icons/icon_collapse.svg"
-dest_files=["res://.godot/imported/icon_collapse.svg-899df8ccadac7944d744baceec9cf8c5.ctex"]
+source_file="res://icons/icon_tunnel.svg"
+dest_files=["res://.godot/imported/icon_tunnel.svg-ba764ed09aa50b049ab3cb1cbc4fa366.ctex"]
 
 [params]
 

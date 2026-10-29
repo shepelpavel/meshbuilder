@@ -31,7 +31,7 @@ The toolbar is three rows of icon groups (groups are separated by vertical lines
 | Row | Contents |
 |---|---|
 | 1 | modes (Object / Vertex / Edge / Face / Texture), Move / Rotate / Scale, gizmo Space, selection operations, Auto Smooth |
-| 2 | V-Snap, Soft (proportional editing) and its radius, grid + snapping, Lit / Shadow / X-Ray, mesh operations (Extrude, Inset, Bevel, Subdiv, Merge, Del, Knife, Loop Cut, Connect, Bridge, Collapse, Fill Hole, Weld, Detach) |
+| 2 | V-Snap, Soft (proportional editing) and its radius, grid + snapping, Lit / Shadow / X-Ray, mesh operations (Extrude, Inset, Bevel, Subdiv, Merge, Del, Knife, Loop Cut, Connect, Bridge, Tunnel, Fill Hole, Weld, Detach) |
 | 3 | New Shape, N-Gon, Edit Params, object operations (Merge Objects, Mirror, Center Pivot, Freeze Xform, MeshBuilderize), Merge by Dist, CSG (Union / Subtract / Intersect), Trim Walls, panel buttons |
 
 Panels are separate bottom tabs: the toolbar opens on start, `Materials` and `UV Editor` are opened from
@@ -51,7 +51,7 @@ torus, n-gon — plus **Trim Walls** for skirting and mouldings along walls.
 
 ## Modes and selection
 
-`1` / `2` / `3` switch vertex / edge / face mode (`6` — texture); `H` / `J` / `K` are the same modes
+`1` / `2` / `3` switch vertex / edge / face mode (`4` — object, `6` — texture); `H` / `J` / `K` are the same modes
 without leaving the left hand on the number row. Switching modes converts the selection.
 
 - click selects one element, rubber band selects a group, `Shift` adds, `Ctrl` removes;
@@ -69,16 +69,23 @@ without leaving the left hand on the number row. Switching modes converts the se
 | Extrude | `E` | extrudes selected faces/edges |
 | Inset | `I` | insets a face inside the selected one |
 | Bevel | `B` | chamfers edges, faces or vertices (Distance + Segments modal) |
-| Subdivide | `D` | splits faces |
+| Subdivide | `D` | face mode — cut a quad into 4; edge mode — split the selected edges at their midpoints (the faces around them become n-gons) |
 | Loop Cut | `Ctrl+R` | inserts an edge loop through a quad ring |
-| Knife | button | cuts a face along clicked points; a closed loop inside a face cuts a hole |
+| Knife | button | cuts a face along clicked points; it arms from object mode too (the first click picks the face), `Enter` completes the cut; a closed loop inside a face cuts a hole |
 | Merge Faces | button | merges selected faces into one |
 | Merge (Weld) | `M` | merges selected vertices into their centroid |
 | **Merge by Dist** | button | merges every vertex closer than 1 mm across the whole mesh (Blender's Merge by Distance) |
-| Bridge / Connect / Collapse | `Shift+B` / button / button | bridge edges, add a connecting edge, collapse the selection |
-| Fill Hole | button | closes a hole along its border |
+| Bridge / Connect | `Shift+B` / button | bridge two edges, add a connecting edge |
+| **Tunnel** | button | a tunnel between two selected faces (see below) |
+| Fill Hole | button | in vertex mode — a face from the selected vertices (3+); otherwise closes the mesh's open borders |
 | Detach | button | moves selected faces into a new object |
 | Delete | `X` | mode-aware delete: faces, edges (merging the neighbours) or vertices |
+
+**Tunnel:** select two faces in face mode (two opposite sides of a box, say) and hit **Tunnel** — both faces
+are removed and their loops are bridged with walls, so the hole runs straight through the solid. The
+openings keep the faces' shapes (both need the same corner count: 4 and 4, 3 and 3) and the walls face
+into the bore. Neighbouring faces (sharing an edge) are refused — a tunnel goes between different sides
+of the solid.
 
 **Bevel:** Distance is in metres, clamped to 49 % of the shortest incident edge; Segments 1–8 round the
 fillet. A vertex bevel has no segments — it is a single flat cut, so its slider is hidden. A face with a
@@ -90,7 +97,11 @@ beveled at all.
 - **Merge Objects** welds selected `MBMesh` nodes, **Mirror** mirrors across X, **Center Pivot** moves the
   pivot to the centre, **Freeze Transform** bakes the transform into the geometry.
 - **MeshBuilderize** converts a `MeshInstance3D` or a `CSG` node into an editable `MBMesh`.
-- **CSG Union / Subtract / Intersect** run Godot's CSG kernel on the selection.
+- **CSG Union / Subtract / Intersect** run Godot's CSG kernel on the selection: select two `MBMesh`
+  nodes (first — target, second — cutter) **in object mode** (`4`) and hit the button. The result stays on
+  the target, the cutter leaves the scene, all one undo step. Meshes must be closed (an open border is
+  refused as non-manifold), 256 materials per operand max. In vertex/edge/face mode the selection is
+  deliberately narrowed to one mesh, so multi-select is unavailable there.
 - **Lit / Shadow** toggle shading and shadow casting on the selected objects.
 
 ## Materials
@@ -137,6 +148,7 @@ height. Snapping applies to new shapes and to dragging elements alike.
 | Key | Action |
 |---|---|
 | `1` `2` `3` `6` | vertex / edge / face / texture mode |
+| `4` | object mode (multi-select; CSG and Merge Objects work from here) |
 | `H` `J` `K` | the same modes (alternative) |
 | `G` `R` `S` | Move / Rotate / Scale |
 | `Shift+X` | cycle gizmo space |

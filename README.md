@@ -24,7 +24,7 @@ geometry by hand.
 
 **Mesh editing.** Object / Vertex / Edge / Face modes with marquee selection and selection conversion
 between modes. Operations: extrude, inset, multi-segment bevel, loop cut, knife, subdivide, merge,
-weld, bridge, connect, collapse, fill hole, detach, delete. Everything with live previews and full
+weld, bridge, connect, tunnel, fill hole, detach, delete. Everything with live previews and full
 undo.
 
 **Materials and UV.** Per-mesh material palette (each mesh keeps its own list) with per-face assignment and a default material for
@@ -80,7 +80,7 @@ same code is called `pb_*` / `PB*` there.
 
 **Правка меша.** Режимы Object / Vertex / Edge / Face, выделение рамкой, с конвертацией между
 режимами. Операции: extrude, inset, bevel (мультисегментный), loop cut, нож, subdivide, merge, weld,
-bridge, connect, collapse, fill hole, detach, delete. Всё с превью и полноценным undo.
+bridge, connect, tunnel, fill hole, detach, delete. Всё с превью и полноценным undo.
 
 **Материалы и UV.** Палитра материалов меша (у каждого свой список) с назначением на грани и материалом по умолчанию для
 новых фигур. Отдельный 2D UV-редактор: каналы UV1 и UV2, box-unwrap, развёртка для LightmapGI,

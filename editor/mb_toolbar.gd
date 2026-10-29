@@ -200,12 +200,18 @@ func _build_ui() -> void:
 	_make_op_button("Bevel", "bevel_edges", "Bevel selected edges or faces (Chamfer or fillet rounding)", "icon_bevel.svg")
 	_make_op_button("Bridge", "bridge_edges", "Bridge: Connect two open boundary edges with a face (Alt+B)", "icon_bridge.svg")
 	_make_op_button("Connect", "connect_edges", "Connect: Insert edge connecting edge midpoints or vertices (Alt+E)", "icon_connect.svg")
-	_make_op_button("Collapse", "collapse_elements", "Collapse selected vertices, edges, or faces to a single point", "icon_collapse.svg")
-	_make_op_button("Fill Hole", "fill_hole", "Fill Hole: Cap open boundary loops with a new face", "icon_fill_hole.svg")
+	_make_op_button("Tunnel", "tunnel_faces",
+		"select 2 faces — they are removed and bridged with walls, a hole straight through the solid",
+		"icon_tunnel.svg")
+	_make_op_button("Fill Hole", "fill_hole",
+		"cap open boundary loops — or, in vertex mode, make a face from 3+ selected vertices",
+		"icon_fill_hole.svg")
 	_make_op_button("Knife", "knife_tool", "Knife: Cut faces by placing vertices (Enter to complete cut)", "icon_knife.svg")
 	_make_op_button("Loop Cut", "insert_edge_loop", "Insert an edge loop through the ring of quads crossed by the selected edge", "icon_loop_cut.svg")
 	_make_op_button("Merge", "merge_faces", "Merge edge-adjacent selected faces into one n-gon", "icon_merge.svg")
-	_make_op_button("Subdiv", "subdivide_faces", "Subdivide the selected quads into 4", "icon_subdivide.svg")
+	_make_op_button("Subdiv", "subdivide_faces",
+		"face mode: cut the selected quads into 4 · edge mode: split the selected edges at their midpoints (D)",
+		"icon_subdivide.svg")
 	_make_op_button("Merge", "weld_vertices", "Merge the selected vertices into their centroid (M)", "icon_weld.svg")
 	_btn_merge_by_distance = _make_op_button("Merge by Dist", "merge_by_distance",
 		"Collapse every pair of vertices closer than 1 mm into one (Blender's Merge by Distance) — works on the whole mesh, no selection needed",
@@ -399,7 +405,7 @@ func _update_row_layout() -> void:
 		],
 		[
 			_op_buttons["knife_tool"], _op_buttons["insert_edge_loop"], _op_buttons["connect_edges"],
-			_op_buttons["bridge_edges"], _op_buttons["collapse_elements"], _op_buttons["fill_hole"],
+			_op_buttons["bridge_edges"], _op_buttons["tunnel_faces"], _op_buttons["fill_hole"],
 			_op_buttons["weld_vertices"], _op_buttons["detach_faces"],
 		],
 	])
@@ -556,10 +562,9 @@ func _on_selection_info_changed(_arg = null) -> void:
 		_op_buttons["connect_edges"].disabled = not (in_edge and edges_selected) \
 			and not (in_vertex and verts_selected) \
 			and not (in_face and faces_selected)
-	if _op_buttons.has("collapse_elements"):
-		_op_buttons["collapse_elements"].disabled = not (in_vertex and verts_selected) \
-			and not (in_edge and edges_selected) \
-			and not (in_face and faces_selected)
+	if _op_buttons.has("tunnel_faces"):
+		_op_buttons["tunnel_faces"].disabled = not (in_face and editor != null and editor.selection != null \
+			and editor.selection.selected_faces.size() == 2)
 	if _op_buttons.has("fill_hole"):
 		_op_buttons["fill_hole"].disabled = editor == null or editor.active_mesh == null
 	if _op_buttons.has("knife_tool"):
@@ -568,7 +573,7 @@ func _on_selection_info_changed(_arg = null) -> void:
 		_op_buttons["insert_edge_loop"].disabled = not (in_edge and edges_selected)
 		_op_buttons["merge_faces"].disabled = not (in_face and faces_selected)
 	if _op_buttons.has("subdivide_faces"):
-		_op_buttons["subdivide_faces"].disabled = not (in_face and faces_selected)
+		_op_buttons["subdivide_faces"].disabled = not ((in_face and faces_selected) or (in_edge and edges_selected))
 	if _op_buttons.has("weld_vertices"):
 		_op_buttons["weld_vertices"].disabled = not (in_vertex and verts_selected)
 	if _op_buttons.has("detach_faces"):

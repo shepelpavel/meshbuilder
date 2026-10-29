@@ -1128,6 +1128,7 @@ func _collapse_selection_to_active() -> void:
 		logger.info("plugin", "Element mode edits one mesh — selection narrowed to '%s'" % mesh.name)
 	sel.clear()
 	sel.add_node(mesh)
+	_op_hint("Element mode edits one mesh — press 4 for Object mode to select several")
 
 ## The element mode the selection currently lives in — the conversion's
 ## SOURCE when the mode changes (select_mode is already the TARGET by the
@@ -1704,6 +1705,11 @@ func _on_operation_requested(op_name: String) -> void:
 	if op_name == "smooth_auto":
 		_perform_auto_smooth()
 		return
+	# Knife needs a mesh, not an element mode: arming it in Object mode and then
+	# clicking a face is a normal way to start a cut, so it sits before the gate.
+	if op_name == "knife_tool":
+		_start_knife_tool()
+		return
 	if not editor.is_editing() or editor.active_mesh == null:
 		return
 	# Extrude is ONE action: face mode extrudes faces, edge mode extrudes
@@ -1722,10 +1728,6 @@ func _on_operation_requested(op_name: String) -> void:
 	if op_name == "detach_faces":
 		_perform_detach(mesh, selection.selected_faces.duplicate())
 		return
-	if op_name == "knife_tool":
-		_start_knife_tool()
-		return
-
 	if op_name == "select_all":
 		_perform_select_all()
 		return
@@ -1772,7 +1774,15 @@ func _on_operation_requested(op_name: String) -> void:
 		"inset_faces":
 			result = MBMeshOps.inset_faces(mesh_data, selection.selected_faces.duplicate(), amount)
 		"subdivide_faces":
-			result = MBMeshOps.subdivide_faces(mesh_data, selection.selected_faces.duplicate())
+			# Edge mode splits the selected edges at their midpoints; face mode
+			# still cuts quads into 4.
+			if editor.select_mode == MBEditor.SelectMode.EDGE and not selection.selected_edges.is_empty():
+				result = MBMeshOps.subdivide_edges(mesh_data, _edge_ids_for_op(mesh_data))
+				if not result.get("ok", false):
+					_op_hint("Subdivide edges: %s"
+						% String(result.get("error", "failed")).replace("Subdivide edges: ", ""))
+			else:
+				result = MBMeshOps.subdivide_faces(mesh_data, selection.selected_faces.duplicate())
 		"merge_faces":
 			result = MBMeshOps.merge_faces(mesh_data, selection.selected_faces.duplicate())
 		"delete_faces":
@@ -1806,16 +1816,16 @@ func _on_operation_requested(op_name: String) -> void:
 				result = MBMeshOps.connect_edges(mesh_data, edge_ids)
 		"connect_vertices":
 			result = MBMeshOps.connect_vertices(mesh_data, selection.selected_vertices.duplicate())
-		"collapse_elements":
-			var elem_ids: PackedInt32Array
-			match editor.select_mode:
-				MBEditor.SelectMode.VERTEX:
-					elem_ids = selection.selected_vertices.duplicate()
-				MBEditor.SelectMode.EDGE:
-					elem_ids = _edge_ids_for_op(mesh_data)
-				MBEditor.SelectMode.FACE:
-					elem_ids = selection.selected_faces.duplicate()
-			result = MBMeshOps.collapse_elements(mesh_data, int(editor.select_mode), elem_ids)
+		"tunnel_faces":
+			if editor.select_mode != MBEditor.SelectMode.FACE:
+				_op_hint("Tunnel: select two faces first (3 = face mode)")
+				return
+			if selection.selected_faces.size() != 2:
+				_op_hint("Tunnel: select exactly 2 faces on opposite sides of the solid")
+				return
+			result = MBMeshOps.tunnel_faces(mesh_data, selection.selected_faces.duplicate())
+			if not result.get("ok", false):
+				_op_hint("Tunnel: %s" % String(result.get("error", "failed")).replace("Tunnel: ", ""))
 		"merge_by_distance":
 			result = MBMeshOps.merge_by_distance(mesh_data, MERGE_BY_DISTANCE_TOLERANCE)
 			if not result.get("ok", false):
@@ -1827,8 +1837,18 @@ func _on_operation_requested(op_name: String) -> void:
 				return
 			_op_hint("Merged vertices by distance: %d" % int(result.get("merged", 0)))
 		"fill_hole":
-			var edge_ids := _edge_ids_for_op(mesh_data)
-			result = MBMeshOps.fill_hole(mesh_data, edge_ids)
+			# Vertex mode caps the SELECTED vertices with a face; edge/face modes
+			# cap the open boundary loops (a hole that already exists).
+			if editor.select_mode == MBEditor.SelectMode.VERTEX and selection.selected_vertex_count() >= 3:
+				var picked := PackedInt32Array()
+				for cv in selection.selected_vertices:
+					picked.append(int(cv))
+				result = MBMeshOps.fill_from_vertices(mesh_data, picked)
+			else:
+				var edge_ids := _edge_ids_for_op(mesh_data)
+				result = MBMeshOps.fill_hole(mesh_data, edge_ids)
+			if not result.get("ok", false):
+				_op_hint("Fill: %s" % String(result.get("error", "failed")).replace("Fill: ", ""))
 		"bevel_edges":
 			var is_vertex_bevel := editor.select_mode == MBEditor.SelectMode.VERTEX
 			var is_face_bevel := false
@@ -1960,7 +1980,7 @@ func _finish_mesh_op(mesh: MBMesh, op_name: String, new_face_count: int, created
 	mesh.rebuild()
 	editor.selection.clear_all()
 	mesh.clear_subgizmo_selection()
-	if (op_name == "bridge_edges" or op_name == "fill_hole") and not created_faces.is_empty():
+	if (op_name == "bridge_edges" or op_name == "fill_hole" or op_name == "tunnel_faces") and not created_faces.is_empty():
 		editor.select_mode = MBEditor.SelectMode.FACE
 		_apply_selection_set(mesh, created_faces, PackedInt32Array())
 	if mesh.mb_mesh_data != null:
@@ -1986,7 +2006,7 @@ const OP_ACTION_NAMES := {
 	"bridge_edges": "Bridge Edges",
 	"connect_edges": "Connect",
 	"connect_vertices": "Connect Vertices",
-	"collapse_elements": "Collapse",
+	"tunnel_faces": "Tunnel",
 	"fill_hole": "Fill Hole",
 }
 func _perform_select_all() -> void:
@@ -2238,6 +2258,7 @@ func _perform_csg_boolean(op: MBCsg.BooleanOp) -> void:
 	if candidates.size() < 2:
 		if logger:
 			logger.warn("plugin", "CSG Booleans require 2 selected objects (Target and Cutter). Select both with Shift/Ctrl.")
+		_op_hint("CSG needs 2 objects: press 4 (Object mode), click the target, Shift+click the cutter")
 		return
 
 	# The SELECTION ORDER decides the operands — there is no hidden "active
@@ -3016,11 +3037,15 @@ func _start_knife_tool() -> void:
 		_ngon_drawer_abort("switched to knife tool")
 	_clear_creation_hover()
 	var target_m: MBMesh = editor.active_mesh
+	if target_m == null or target_m.mb_mesh_data == null:
+		_op_hint("Knife: select an MBMesh first")
+		return
 	var target_f: int = -1
 	if editor.selection != null and editor.selection.selected_face_count() > 0:
 		target_f = editor.selection.selected_faces[0]
 	ngon_drawer.arm(MBNgonDrawer.Mode.KNIFE, target_m, target_f)
-	_make_ngon_preview_node()
+	# No preview node for a cut: `begin` re-targets the face under the first
+	# click, and a stray mesh in the scene only gets in the way of saving.
 	_update_editing_context()
 	_set_creation_hint("Knife: click on a face to place vertices, drag to move, Enter to cut (Esc cancels)")
 	if target_m != null:

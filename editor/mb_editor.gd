@@ -102,7 +102,7 @@ var orientation_space: OrientationSpace = OrientationSpace.ELEMENT:
 ## Last element mode the user was in. Re-entering a MBMesh (after clicking
 ## off, selecting another node, or deselecting everything) restores this
 ## instead of falling back to FACE, so the plugin "stays in" its mode.
-var _last_element_mode: SelectMode = SelectMode.FACE
+var _last_element_mode: SelectMode = SelectMode.OBJECT
 
 ## True while OBJECT mode was chosen EXPLICITLY (toolbar button / mode set).
 ## An explicit object mode survives deselect + reselect (clicking off an

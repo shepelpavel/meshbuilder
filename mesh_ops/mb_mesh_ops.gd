@@ -176,6 +176,79 @@ static func inset_faces(mesh_data: MBMeshData, face_ids: PackedInt32Array,
 ## Unselected neighbor faces sharing split boundary edges are retriangulated into
 ## n-gons connected to the new midpoint vertices (each face owning its own
 ## duplicate positions, welded via coincident vertex groups).
+## Splits selected EDGES at their midpoints: every adjacent face is rebuilt
+## with the new vertex inserted into its outline (a quad gets a 5-gon), so no
+## face is left hanging on a half-edge.
+static func subdivide_edges(mesh_data: MBMeshData, edge_ids: PackedInt32Array) -> Dictionary:
+	if mesh_data == null or mesh_data.faces.is_empty():
+		return _fail("Subdivide edges: no mesh data")
+	if edge_ids.is_empty():
+		return _fail("Subdivide edges: select edges first (2 = edge mode)")
+
+	var common := mesh_data.get_common_edges()
+	var wanted := {}
+	for eid in edge_ids:
+		if eid < 0 or eid >= common.size():
+			return _fail("Subdivide edges: edge index out of range")
+		var ce: MBEdge = common[eid]
+		var pa: Vector3 = mesh_data.positions[ce.a]
+		var pb: Vector3 = mesh_data.positions[ce.b]
+		wanted[_edge_key(pa, pb)] = {"pos": pa.lerp(pb, 0.5), "src": ce.a}
+
+	var rebuilt: Array[MBFace] = []
+	var changed_ids := PackedInt32Array()
+	for face in mesh_data.faces:
+		if face == null:
+			rebuilt.append(face)
+			continue
+		var loop := _ordered_loop(face)
+		if loop.size() < 3:
+			# A face with a spliced/self-touching outline cannot take a new
+			# corner — refuse rather than leave a hole next to the split edge.
+			for i in loop.size():
+				var k := _edge_key(mesh_data.positions[loop[i]], mesh_data.positions[loop[(i + 1) % loop.size()]])
+				if wanted.has(k):
+					return _fail("Subdivide edges: face outline is too complex to split")
+			rebuilt.append(face)
+			continue
+
+		var inserted: Array[int] = []
+		for f_i in loop.size():
+			var k := _edge_key(mesh_data.positions[loop[f_i]], mesh_data.positions[loop[(f_i + 1) % loop.size()]])
+			if wanted.has(k):
+				inserted.append(f_i)
+
+		if inserted.is_empty():
+			rebuilt.append(face)
+			continue
+
+		var pts := PackedVector3Array()
+		var dups := PackedInt32Array()
+		for f_i in loop.size():
+			pts.append(mesh_data.positions[loop[f_i]])
+			dups.append(_dup_position(mesh_data, loop[f_i], Vector3.ZERO))
+			var k := _edge_key(mesh_data.positions[loop[f_i]], mesh_data.positions[loop[(f_i + 1) % loop.size()]])
+			if wanted.has(k):
+				var info: Dictionary = wanted[k]
+				pts.append(info["pos"])
+				dups.append(_dup_position_at(mesh_data, info["pos"], int(info["src"])))
+
+		var ref_n := _face_area_normal(mesh_data, face).normalized()
+		if ref_n.length_squared() < 0.0001:
+			ref_n = Vector3.UP
+		var new_face := _build_polygon_face_with_normal(mesh_data, pts, dups, ref_n, face.submesh_index)
+		if new_face == null:
+			return _fail("Subdivide edges: could not rebuild a face")
+		changed_ids.append(rebuilt.size())
+		rebuilt.append(new_face)
+
+	if changed_ids.is_empty():
+		return _fail("Subdivide edges: no selected edge borders a face")
+
+	mesh_data.faces = rebuilt
+	_rebuild_topology(mesh_data)
+	return {"ok": true, "new_face_ids": changed_ids}
+
 static func subdivide_faces(mesh_data: MBMeshData, face_ids: PackedInt32Array) -> Dictionary:
 	if not _faces_valid(mesh_data, face_ids):
 		return _fail("Subdivide faces: invalid selection")
@@ -1199,6 +1272,128 @@ static func bevel_faces(mesh_data: MBMeshData, face_ids: PackedInt32Array,
 
 ## Connects two boundary edges across a gap with a new polygon face (quad or triangle).
 ## edge_ids contains exactly 2 common edge IDs (indices into mesh_data.get_common_edges()).
+## Cuts a tunnel between two selected faces: both faces are removed and their
+## loops are bridged with wall quads, so the hole runs straight through the
+## solid with the shape of the two openings. The loops must match in corner
+## count (4/4, 3/3 …) — an octagon against a quad has no sane pairing.
+static func tunnel_faces(mesh_data: MBMeshData, face_ids: PackedInt32Array) -> Dictionary:
+	if mesh_data == null or mesh_data.faces.is_empty():
+		return _fail("Tunnel: no mesh data")
+	if face_ids.size() != 2:
+		return _fail("Tunnel: select exactly 2 faces (3 = face mode)")
+
+	var ia: int = face_ids[0]
+	var ib: int = face_ids[1]
+	if ia < 0 or ib < 0 or ia >= mesh_data.faces.size() or ib >= mesh_data.faces.size():
+		return _fail("Tunnel: face index out of range")
+	if ia == ib:
+		return _fail("Tunnel: select 2 different faces")
+
+	var fa: MBFace = mesh_data.faces[ia]
+	var fb: MBFace = mesh_data.faces[ib]
+	if fa == null or fb == null:
+		return _fail("Tunnel: face is missing")
+
+	var la := fa.get_outline_indexes()
+	var lb := fb.get_outline_indexes()
+	if la.size() < 3 or lb.size() < 3:
+		return _fail("Tunnel: a face has no usable outline")
+	if la.size() != lb.size():
+		return _fail("Tunnel: both faces need the same corner count (%d vs %d)" % [la.size(), lb.size()])
+	if _faces_share_edge(mesh_data, fa, fb):
+		return _fail("Tunnel: the faces are neighbours — pick two sides of the solid")
+
+	var n := la.size()
+	var pa := PackedVector3Array()
+	var pb := PackedVector3Array()
+	for i in n:
+		pa.append(mesh_data.positions[la[i]])
+		pb.append(mesh_data.positions[lb[i]])
+
+	var ca := _centroid_of(pa)
+	var cb := _centroid_of(pb)
+
+	# Rotation/reversal of loop B that lines its corners up with loop A.
+	var best_shift := 0
+	var best_rev := false
+	var best_cost := INF
+	for rev in [false, true]:
+		for shift in n:
+			var cost := 0.0
+			for i in n:
+				var j: int = (shift + (n - 1 - i if rev else i)) % n
+				cost += pa[i].distance_to(pb[j])
+			if cost < best_cost:
+				best_cost = cost
+				best_shift = shift
+				best_rev = rev
+
+	var submesh := fa.submesh_index
+	var walls: Array[MBFace] = []
+	for i in n:
+		var i2 := (i + 1) % n
+		var j: int = (best_shift + (n - 1 - i if best_rev else i)) % n
+		var j2: int = (best_shift + (n - 1 - i2 if best_rev else i2)) % n
+
+		var corner_pts := PackedVector3Array([pa[i], pa[i2], pb[j2], pb[j]])
+		var corners := PackedInt32Array()
+		corners.append(_dup_position_at(mesh_data, pa[i], la[i]))
+		corners.append(_dup_position_at(mesh_data, pa[i2], la[i2]))
+		corners.append(_dup_position_at(mesh_data, pb[j2], lb[j2]))
+		corners.append(_dup_position_at(mesh_data, pb[j], lb[j]))
+
+		# A tunnel wall is seen from inside the bore, so the quad has to face
+		# the axis between the two openings (the builder flips the winding when
+		# the face ends up looking the other way, and it triangulates the quad —
+		# a raw 4-index MBFace would not render).
+		var quad_c := (pa[i] + pa[i2] + pb[j] + pb[j2]) * 0.25
+		var to_axis := _closest_on_segment(quad_c, ca, cb) - quad_c
+		if to_axis.length_squared() < 0.00000001:
+			to_axis = cb - ca
+		var wall := _build_polygon_face_with_normal(mesh_data, corner_pts, corners, to_axis.normalized(), submesh)
+		if wall != null:
+			walls.append(wall)
+
+	var kept: Array[MBFace] = []
+	for f in mesh_data.faces:
+		if f == null or f == fa or f == fb:
+			continue
+		kept.append(f)
+	var base := kept.size()
+	kept.append_array(walls)
+	mesh_data.faces = kept
+	_rebuild_topology(mesh_data)
+
+	var new_ids := PackedInt32Array()
+	for i in walls.size():
+		new_ids.append(base + i)
+	return {"ok": true, "new_face_ids": new_ids}
+
+static func _faces_share_edge(mesh_data: MBMeshData, fa: MBFace, fb: MBFace) -> bool:
+	var keys := {}
+	for fe in fa.get_edges():
+		keys[_edge_key(mesh_data.positions[fe.a], mesh_data.positions[fe.b])] = true
+	for fe in fb.get_edges():
+		if keys.has(_edge_key(mesh_data.positions[fe.a], mesh_data.positions[fe.b])):
+			return true
+	return false
+
+static func _centroid_of(pts: PackedVector3Array) -> Vector3:
+	if pts.is_empty():
+		return Vector3.ZERO
+	var c := Vector3.ZERO
+	for p in pts:
+		c += p
+	return c / float(pts.size())
+
+static func _closest_on_segment(p: Vector3, a: Vector3, b: Vector3) -> Vector3:
+	var ab := b - a
+	var len2 := ab.length_squared()
+	if len2 < 0.00000001:
+		return a
+	var t := clampf((p - a).dot(ab) / len2, 0.0, 1.0)
+	return a + ab * t
+
 static func bridge_edges(mesh_data: MBMeshData, edge_ids: PackedInt32Array) -> Dictionary:
 	if mesh_data == null or mesh_data.faces.is_empty():
 		return _fail("Bridge edges: no mesh data")
@@ -1633,96 +1828,6 @@ static func connect_vertices(mesh_data: MBMeshData, vertex_ids: PackedInt32Array
 
 	return {"ok": true, "new_face_ids": replace_res.get("new_face_ids", PackedInt32Array())}
 
-## Collapses selected vertices, edges, or faces into a single point.
-## Mode: MBEditor.SelectMode (1: VERTEX, 2: EDGE, 3: FACE).
-## If collapse_to_first is true, collapses to the first element's position; otherwise to the centroid.
-static func collapse_elements(mesh_data: MBMeshData, mode: int, element_ids: PackedInt32Array,
-		collapse_to_first: bool = false) -> Dictionary:
-	if mesh_data == null or mesh_data.faces.is_empty():
-		return _fail("Collapse elements: no mesh data")
-	if element_ids.is_empty():
-		return _fail("Collapse elements: no elements selected")
-
-	var lookup := mesh_data.get_shared_vertex_lookup()
-	var target_indices := PackedInt32Array()
-
-	if mode == 1: # VERTEX
-		for vid in element_ids:
-			if vid >= 0 and vid < mesh_data.positions.size():
-				var cg: int = lookup.get(vid, vid)
-				for i in range(mesh_data.positions.size()):
-					if lookup.get(i, i) == cg:
-						target_indices.append(i)
-	elif mode == 2: # EDGE
-		var common := mesh_data.get_common_edges()
-		for eid in element_ids:
-			if eid >= 0 and eid < common.size():
-				var ce := common[eid]
-				var ca: int = lookup.get(ce.a, ce.a)
-				var cb: int = lookup.get(ce.b, ce.b)
-				for i in range(mesh_data.positions.size()):
-					var c: int = lookup.get(i, i)
-					if c == ca or c == cb:
-						target_indices.append(i)
-	elif mode == 3: # FACE
-		for fid in element_ids:
-			if fid >= 0 and fid < mesh_data.faces.size():
-				var f: MBFace = mesh_data.faces[fid]
-				if f != null:
-					for idx in f.get_distinct_indexes():
-						var cg: int = lookup.get(idx, idx)
-						for i in range(mesh_data.positions.size()):
-							if lookup.get(i, i) == cg:
-								target_indices.append(i)
-
-	if target_indices.is_empty():
-		return _fail("Collapse elements: no valid vertices found")
-
-	var target_pos := Vector3.ZERO
-	if collapse_to_first:
-		target_pos = mesh_data.positions[target_indices[0]]
-	else:
-		var sum_pos := Vector3.ZERO
-		var distinct_pts := {}
-		for idx in target_indices:
-			var p := mesh_data.positions[idx]
-			var k := Vector3(snappedf(p.x, 0.0001), snappedf(p.y, 0.0001), snappedf(p.z, 0.0001))
-			if not distinct_pts.has(k):
-				distinct_pts[k] = true
-				sum_pos += p
-		target_pos = sum_pos / float(maxi(1, distinct_pts.size()))
-
-	for idx in target_indices:
-		mesh_data.positions[idx] = target_pos
-
-	# Eliminate degenerate triangles
-	var surviving_faces: Array[MBFace] = []
-	for face in mesh_data.faces:
-		if face == null:
-			continue
-		var raw_idxs := face.get_indexes()
-		var valid_tris := PackedInt32Array()
-		for i in range(0, raw_idxs.size(), 3):
-			var i0 := raw_idxs[i]
-			var i1 := raw_idxs[i + 1]
-			var i2 := raw_idxs[i + 2]
-			var p0 := mesh_data.positions[i0]
-			var p1 := mesh_data.positions[i1]
-			var p2 := mesh_data.positions[i2]
-			if p0.distance_to(p1) > 0.0005 and p1.distance_to(p2) > 0.0005 and p2.distance_to(p0) > 0.0005:
-				valid_tris.append_array(PackedInt32Array([i0, i1, i2]))
-
-		if not valid_tris.is_empty():
-			face.set_indexes(valid_tris)
-			surviving_faces.append(face)
-
-	if surviving_faces.is_empty():
-		return _fail("Collapse elements: all mesh geometry collapsed")
-
-	mesh_data.faces = surviving_faces
-	_rebuild_topology(mesh_data)
-
-	return {"ok": true, "target_position": target_pos, "new_face_ids": PackedInt32Array()}
 
 ## Detects open boundary loops touching selected edges and caps each with a new polygon face.
 ## If edge_ids is empty, caps all open boundary loops found on the mesh.
@@ -1832,6 +1937,217 @@ static func fill_hole(mesh_data: MBMeshData, edge_ids: PackedInt32Array = Packed
 		new_ids.append(base_idx + i)
 
 	return {"ok": true, "new_face_ids": new_ids}
+
+## Caps a loop of SELECTED VERTICES with one face (Blender's `F` on a vertex
+## ring). fill_hole() needs an existing open boundary; this one builds the
+## polygon out of the vertices themselves — they are ordered around their
+## best-fit plane, and the winding follows the faces around them so the cap
+## faces the same way as the surface it closes.
+static func fill_from_vertices(mesh_data: MBMeshData, common_vertex_ids: PackedInt32Array) -> Dictionary:
+	if mesh_data == null or mesh_data.faces.is_empty():
+		return _fail("Fill: no mesh data")
+
+	# A shared group's cached `indices` go stale after a topology rewrite
+	# (delete a face and indices[0] can name a corner of ANOTHER face), so the
+	# positions are resolved through the current faces: position -> common
+	# group via the lookup, first hit wins.
+	var wanted := {}
+	for cv in common_vertex_ids:
+		if cv >= 0 and cv < mesh_data.shared_vertices.size():
+			wanted[cv] = true
+	if wanted.is_empty():
+		return _fail("Fill: select at least 3 vertices")
+
+	var lookup := mesh_data.get_shared_vertex_lookup()
+	var common_to_pos := {}
+	for face in mesh_data.faces:
+		if face == null:
+			continue
+		for vi in face.get_indexes():
+			var cv: int = int(lookup.get(vi, vi))
+			if wanted.has(cv) and not common_to_pos.has(cv):
+				common_to_pos[cv] = vi
+		if common_to_pos.size() == wanted.size():
+			break
+
+	var pts := PackedVector3Array()
+	var src_idx := PackedInt32Array()
+	var seen := {}
+	for cv in common_vertex_ids:
+		if not common_to_pos.has(cv):
+			continue
+		var pi: int = int(common_to_pos[cv])
+		if pi < 0 or pi >= mesh_data.positions.size():
+			continue
+		var key := _pos_key(mesh_data.positions[pi])
+		if seen.has(key):
+			continue
+		seen[key] = true
+		pts.append(mesh_data.positions[pi])
+		src_idx.append(pi)
+
+	if pts.size() < 3:
+		return _fail("Fill: select at least 3 vertices")
+
+	var centroid := Vector3.ZERO
+	for p in pts:
+		centroid += p
+	centroid /= float(pts.size())
+
+	# The plane comes from the points themselves (biggest spread pair). The
+	# faces around them are useless for a hole — their normals are perpendicular
+	# to the cap, and summing them used to leave a garbage vector that flipped
+	# the new face inward.
+	var ref_n := _plane_normal_from_spread(pts, centroid)
+	if ref_n.length_squared() < 0.000001:
+		return _fail("Fill: the selected vertices are collinear")
+	var near := _normal_around_vertices(mesh_data, src_idx)
+	if near.length() > 0.5 and near.normalized().dot(ref_n) < 0.0:
+		ref_n = -ref_n
+	else:
+		# No consistent surface around the loop: the cap faces AWAY from the
+		# mesh, which is outward for a hole and for a polygon laid on a surface.
+		var outward := centroid - _mesh_centroid(mesh_data)
+		if outward.length_squared() > 0.000001 and ref_n.dot(outward) < 0.0:
+			ref_n = -ref_n
+	ref_n = ref_n.normalized()
+
+	# Angular order around the centroid in the plane — the polygon needs its
+	# corners in loop order, and the selection arrives unordered.
+	var basis := MBUv.get_planar_basis(ref_n)
+	var u_axis: Vector3 = basis["u"]
+	var v_axis: Vector3 = basis["v"]
+	var angles := PackedFloat32Array()
+	for p in pts:
+		var d := p - centroid
+		angles.append(atan2(d.dot(v_axis), d.dot(u_axis)))
+	var order: Array[int] = []
+	for i in pts.size():
+		order.append(i)
+	order.sort_custom(func(a: int, b: int) -> bool:
+		return angles[a] < angles[b])
+
+	# Refuse a loop whose every edge already has two faces — the cap would
+	# duplicate existing geometry instead of closing something.
+	var edge_usage := {}
+	for face in mesh_data.faces:
+		if face == null:
+			continue
+		for fe in face.get_edges():
+			var ek := _edge_key(mesh_data.positions[fe.a], mesh_data.positions[fe.b])
+			edge_usage[ek] = int(edge_usage.get(ek, 0)) + 1
+	var closed_all := true
+	for i in order.size():
+		var a := pts[order[i]]
+		var b := pts[order[(i + 1) % order.size()]]
+		if int(edge_usage.get(_edge_key(a, b), 0)) < 2:
+			closed_all = false
+			break
+	if closed_all and order.size() >= 3:
+		return _fail("Fill: this loop is already closed by faces")
+
+	var loop_pts := PackedVector3Array()
+	var loop_dups := PackedInt32Array()
+	for i in order:
+		loop_pts.append(pts[i])
+		loop_dups.append(_dup_position(mesh_data, src_idx[i], Vector3.ZERO))
+
+	var submesh := _submesh_around_vertices(mesh_data, src_idx)
+	var cap := _build_polygon_face_with_normal(mesh_data, loop_pts, loop_dups, ref_n, submesh)
+	if cap == null:
+		return _fail("Fill: could not build a face from these vertices")
+
+	mesh_data.faces.append(cap)
+	_rebuild_topology(mesh_data)
+	return {"ok": true, "new_face_ids": PackedInt32Array([mesh_data.faces.size() - 1])}
+
+## Quantised position key — welding-free vertex identity for ops that take raw
+## positions (two faces carry their own copies of the same corner).
+static func _pos_key(p: Vector3) -> Vector3i:
+	return Vector3i(roundi(p.x * 10000.0), roundi(p.y * 10000.0), roundi(p.z * 10000.0))
+
+## Unordered pair of quantised corners as a Dictionary key. NOT hashed into
+## ints: XOR-packed hashes collide on symmetric shapes (a cube gave every edge
+## the same key, and "is this loop closed" answered yes for an open hole).
+static func _edge_key(a: Vector3, b: Vector3) -> Array:
+	var ka := _pos_key(a)
+	var kb := _pos_key(b)
+	if _pos_less(kb, ka):
+		return [kb, ka]
+	return [ka, kb]
+
+static func _pos_less(a: Vector3i, b: Vector3i) -> bool:
+	if a.x != b.x:
+		return a.x < b.x
+	if a.y != b.y:
+		return a.y < b.y
+	return a.z < b.z
+
+## Average normal of the faces touching the picked vertices — it orients the
+## cap the same way as the surrounding surface (outward for a closed shell).
+static func _normal_around_vertices(mesh_data: MBMeshData, src_idx: PackedInt32Array) -> Vector3:
+	var wanted := {}
+	for pi in src_idx:
+		wanted[_pos_key(mesh_data.positions[pi])] = true
+	var sum := Vector3.ZERO
+	for face in mesh_data.faces:
+		if face == null:
+			continue
+		var hits := 0
+		for vi in face.get_indexes():
+			if wanted.has(_pos_key(mesh_data.positions[vi])):
+				hits += 1
+		if hits >= 2:
+			sum += MBMath.normal_from_positions(mesh_data.positions, face.get_indexes())
+	return sum
+
+## Plane normal of a point set: the largest cross product of two spread
+## directions around the centroid (points are coplanar for all practical
+## loops, so any wide pair gives the normal).
+static func _plane_normal_from_spread(pts: PackedVector3Array, c: Vector3) -> Vector3:
+	var v1 := Vector3.ZERO
+	var best := 0.0
+	for p in pts:
+		var d := p - c
+		if d.length() > best:
+			best = d.length()
+			v1 = d
+	var best_n := Vector3.ZERO
+	for p in pts:
+		var n := v1.cross(p - c)
+		if n.length() > best_n.length():
+			best_n = n
+	return best_n
+
+static func _mesh_centroid(mesh_data: MBMeshData) -> Vector3:
+	if mesh_data.positions.is_empty():
+		return Vector3.ZERO
+	var c := Vector3.ZERO
+	for p in mesh_data.positions:
+		c += p
+	return c / float(mesh_data.positions.size())
+
+## Material slot for the new cap: the most common one among the faces around
+## the picked vertices.
+static func _submesh_around_vertices(mesh_data: MBMeshData, src_idx: PackedInt32Array) -> int:
+	var wanted := {}
+	for pi in src_idx:
+		wanted[_pos_key(mesh_data.positions[pi])] = true
+	var counts := {}
+	for face in mesh_data.faces:
+		if face == null:
+			continue
+		for vi in face.get_indexes():
+			if wanted.has(_pos_key(mesh_data.positions[vi])):
+				counts[face.submesh_index] = counts.get(face.submesh_index, 0) + 1
+				break
+	var best := 0
+	var best_count := -1
+	for k in counts:
+		if counts[k] > best_count:
+			best_count = counts[k]
+			best = int(k)
+	return best
 
 static func _build_polygon_face_with_normal(mesh_data: MBMeshData, pts_3d: PackedVector3Array,
 		corner_indices: PackedInt32Array, ref_normal: Vector3, submesh: int) -> MBFace:

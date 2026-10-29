@@ -393,6 +393,22 @@ static func _overlay_camera(node: Node3D) -> Camera3D:
 					return cam3
 	return null
 
+## Which node carries the drawing session's overlay: the knife draws straight
+## on its TARGET mesh (a cut has no preview object), the N-gon tool on the
+## scratch preview node it created.
+## True when the drawing session owns the whole gizmo (N-gon preview node).
+## False for the knife: it borrows the edited mesh's gizmo and must leave the
+## element overlays (selected edges/faces, hover fill) drawn underneath.
+func _ngon_session_suppresses_elements() -> bool:
+	return ngon_drawer == null or ngon_drawer.mode != MBNgonDrawer.Mode.KNIFE
+
+func ngon_session_node() -> Node:
+	if ngon_drawer == null:
+		return null
+	if ngon_drawer.mode == MBNgonDrawer.Mode.KNIFE:
+		return ngon_drawer.target_mesh
+	return ngon_drawer.preview_node
+
 
 func _redraw(gizmo) -> void:
 	gizmo.clear()
@@ -418,12 +434,17 @@ func _redraw(gizmo) -> void:
 	# N-gon drawing session (Knife tool or N-Gon shape extrusion)
 	# Checked FIRST: preview_node draws its overlay without requiring mesh_data!
 	if ngon_drawer != null and ngon_drawer.is_active():
-		if ngon_drawer.preview_node == node:
+		if ngon_session_node() == node:
 			if ngon_drawer.state == MBNgonDrawer.State.HEIGHT:
 				_draw_ngon_height_preview(gizmo, node.mb_mesh_data, ngon_drawer)
-			else:
-				_draw_ngon_drawer_overlay(gizmo, node.mb_mesh_data, ngon_drawer)
-			return
+				return
+			_draw_ngon_drawer_overlay(gizmo, node.mb_mesh_data, ngon_drawer)
+			# The knife draws on the EDITED mesh, so the element highlights have
+			# to keep rendering under it (without them the selection vanished the
+			# moment the tool was armed — nothing to aim at). The N-gon preview
+			# node has no elements of its own and stops here.
+			if _ngon_session_suppresses_elements():
+				return
 
 	var mesh_data: MBMeshData = node.mb_mesh_data
 	if mesh_data == null or mesh_data.positions.is_empty():

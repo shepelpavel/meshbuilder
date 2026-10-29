@@ -1043,12 +1043,15 @@ func update_visibility() -> void:
 	if params_open or grid_panel_open or settings_panel_open:
 		visible = true
 		return
-	if not panel_enabled:
-		visible = false
-		return
+	# A live session's hint (Knife / N-Gon / Trim Walls) is viewport feedback,
+	# not part of the toolbar panel: with the panel closed the tool used to go
+	# completely silent — no hint, no extents — and read as "not working".
 	var creation_active := has_creation_hint() or has_creation_extents()
 	if creation_active:
 		visible = true
+		return
+	if not panel_enabled:
+		visible = false
 		return
 	if editor == null:
 		visible = false
