@@ -2,18 +2,17 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bs0n3mp875wwj"
-path.s3tc="res://.godot/imported/checkerboard_2x2.png-9d9145bc27fd935002c6ab3398105c25.s3tc.ctex"
-path.etc2="res://.godot/imported/checkerboard_2x2.png-9d9145bc27fd935002c6ab3398105c25.etc2.ctex"
+uid="uid://dkitm8audedcy"
+path.s3tc="res://.godot/imported/checkerboard_10x10.png-6f4b30c7eacf68d81063875ec1182fc0.s3tc.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
+"imported_formats": ["s3tc_bptc"],
 "vram_texture": true
 }
 
 [deps]
 
-source_file="res://addons/meshbuilder/materials/textures/checkerboard_2x2.png"
-dest_files=["res://.godot/imported/checkerboard_2x2.png-9d9145bc27fd935002c6ab3398105c25.s3tc.ctex", "res://.godot/imported/checkerboard_2x2.png-9d9145bc27fd935002c6ab3398105c25.etc2.ctex"]
+source_file="res://addons/meshbuilder/materials/textures/checkerboard_10x10.png"
+dest_files=["res://.godot/imported/checkerboard_10x10.png-6f4b30c7eacf68d81063875ec1182fc0.s3tc.ctex"]
 
 [params]
 

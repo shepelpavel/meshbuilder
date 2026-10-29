@@ -1,6 +1,6 @@
 [gd_resource type="StandardMaterial3D" load_steps=2 format=3]
 
-[ext_resource type="Texture2D" path="res://addons/meshbuilder/materials/textures/checkerboard_2x2.png" id="1_tex"]
+[ext_resource type="Texture2D" uid="uid://dkitm8audedcy" path="res://addons/meshbuilder/materials/textures/checkerboard_10x10.png" id="1_tex"]
 
 [resource]
 resource_name = "MB_Default_Material"
