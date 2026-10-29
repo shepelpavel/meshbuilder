@@ -44,6 +44,10 @@ var _trim_walls_last_click_pos: Vector2 = Vector2.ZERO
 var tool_overlay: MBToolOverlay
 var toolbar: MBToolbar
 var material_dock: MBMaterialDock = null
+## Bottom-panel host and tab button for the Material & UV panel (it used to be
+## a right-slot dock, which ate the editor's right column).
+var _material_panel: Control = null
+var _material_bottom_button: Button = null
 var uv_editor_panel: MBUvEditorPanel = null
 var _uv_bottom_button: Button = null
 var material_drop_overlay: MBMaterialDropOverlay = null
@@ -84,7 +88,7 @@ var _toolbar_bottom_button: Button = null
 func _get_plugin_name() -> String:
 	return "MeshBuilder"
 
-const VERSION := "0.1.2"
+const VERSION := "0.1.3"
 
 func _enter_tree():
 	logger.info("plugin", "MeshBuilder v%s entering tree" % VERSION)
@@ -230,14 +234,26 @@ func _enter_tree():
 	material_drop_overlay = MBMaterialDropOverlay.new()
 	material_drop_overlay.plugin = self
 	_add_overlay_to_3d_viewport(material_drop_overlay)
-	# Material & UV Dock panel (DOCK_SLOT_RIGHT_UL)
+	# Material & UV panel: bottom-panel tab next to the toolbar and the UV
+	# Editor (a right-slot dock would take the editor's right column).
 	material_dock = MBMaterialDock.new()
 	material_dock.plugin = self
 	material_dock.editor = editor
 	material_dock.visible = true
 	material_dock.sprite_placer = sprite_placer
 	material_dock.dock_mode_changed.connect(_on_dock_mode_changed)
-	add_control_to_dock(DOCK_SLOT_RIGHT_UL, material_dock)
+	# The bottom panel draws its own background — no second frame around it.
+	material_dock.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	var dock_scroller := ScrollContainer.new()
+	dock_scroller.name = "MaterialScroll"
+	dock_scroller.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	dock_scroller.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	dock_scroller.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dock_scroller.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	dock_scroller.add_child(material_dock)
+	_material_panel = dock_scroller
+	if Engine.is_editor_hint():
+		_material_bottom_button = add_control_to_bottom_panel(dock_scroller, "Material & UV")
 	# Dedicated 2D UV Editor Panel (Bottom dock)
 	uv_editor_panel = MBUvEditorPanel.new()
 	uv_editor_panel.editor = editor
@@ -337,9 +353,12 @@ func _exit_tree():
 
 	# Remove material dock and drop overlay
 	if material_dock != null:
-		remove_control_from_docks(material_dock)
+		if _material_panel != null and _material_bottom_button != null and Engine.is_editor_hint():
+			remove_control_from_bottom_panel(_material_panel)
 		if is_instance_valid(material_dock):
 			material_dock.queue_free()
+		_material_panel = null
+		_material_bottom_button = null
 	# Remove UV editor panel
 	if uv_editor_panel != null:
 		if not uv_editor_panel._is_floating and Engine.is_editor_hint():
@@ -1534,16 +1553,10 @@ func _on_display_reset() -> void:
 func focus_material_dock() -> void:
 	if material_dock == null:
 		return
-	var editor_dock := material_dock.get_parent() as Control
-	if editor_dock != null:
-		editor_dock.show()
-		var tab_container := editor_dock.get_parent() as TabContainer
-		if tab_container != null:
-			tab_container.current_tab = editor_dock.get_index()
-			if tab_container.has_method("get_tab_bar"):
-				var tb = tab_container.call("get_tab_bar")
-				if tb != null and tb.has_method("grab_focus"):
-					tb.call("grab_focus", true)
+	var editor_interface := get_editor_interface()
+	if _material_panel != null and Engine.is_editor_hint() and editor_interface != null \
+			and editor_interface.has_method("make_bottom_panel_item_visible"):
+		editor_interface.call("make_bottom_panel_item_visible", _material_panel)
 	material_dock.show()
 	material_dock.sync_selection()
 
