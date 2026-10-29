@@ -1,6 +1,6 @@
 ## MBShapeGenerators — Procedural mesh generation primitives for MeshBuilder.
 ##
-## Provides static factory methods to generate common geometric shapes (Box, Plane, Sprite, Prism)
+## Provides static factory methods to generate common geometric shapes (Box, Plane, Prism)
 ## as MBMeshData instances with valid topologies, UVs, and shared vertex groupings.
 @tool
 class_name MBShapeGenerators
@@ -329,39 +329,7 @@ static func create_plane(
 
 
 # ==============================================================================
-# 3. Sprite Generator
-# ==============================================================================
-
-## Creates a single upright quad sprite on the XY plane with its base at Y=0.
-## Normal points along +Z with CCW winding.
-static func create_sprite(width: float = 1.0, height: float = 1.0) -> MBMeshData:
-	var hw: float = width * 0.5
-	var positions := PackedVector3Array([
-		Vector3(-hw, 0.0, 0.0),
-		Vector3(-hw, height, 0.0),
-		Vector3(hw, height, 0.0),
-		Vector3(hw, 0.0, 0.0),
-	])
-	var textures0 := PackedVector2Array([
-		Vector2(0.0, 1.0),
-		Vector2(0.0, 0.0),
-		Vector2(1.0, 0.0),
-		Vector2(1.0, 1.0),
-	])
-	var face := MBFace.new(PackedInt32Array([0, 1, 2, 0, 2, 3]))
-	face.manual_uv = true
-	var faces: Array[MBFace] = [face]
-	var mesh_data := MBMeshData.new()
-	mesh_data.positions = positions
-	mesh_data.textures0 = textures0
-	mesh_data.faces = faces
-	mesh_data.shared_vertices = _build_shared_vertices(positions)
-	mesh_data.shared_textures = []
-	mesh_data.invalidate_caches()
-	return mesh_data
-
-# ==============================================================================
-# 4. Prism Generator
+# 3. Prism Generator
 # ==============================================================================
 
 ## Creates a 3D triangular prism centered at the origin.

@@ -10,10 +10,9 @@
 ##   HEIGHT — LMB released: mouse motion adjusts the 3rd dimension along the
 ##            surface normal (the shape preview grows from its base); the
 ##            next LMB click confirms.
-##   OFFSET — the sprite and plane flows: the third dimension is a STAND-OFF
-##            from the surface rather than a size. The sprite reaches it by a
-##            single click that anchors it ON the surface; the plane drags a
-##            base rect out parallel to the surface first and then lifts clear
+##   OFFSET — the plane flow: the third dimension is a STAND-OFF from the
+##            surface rather than a size. The plane drags a base rect out
+##            parallel to the surface first and then lifts clear
 ##            of it. Either way mouse motion displaces the shape along the
 ##            surface normal (clamped >= 0), and the next click confirms.
 ##   PARAMS — the overlay parameter modal is open (live preview, Apply /
@@ -150,7 +149,7 @@ func build_data() -> MBMeshData:
 ## face (< 0, grows below — ProBuilder behavior) — EXCEPT for shapes that
 ## must stay pinned to the surface (MBShapeParams.stays_on_surface): round
 ## shapes SHRINK on a negative drag rather than flipping underground, and the
-## sprite/plane ride the normal offset on top of their plane-aligned base.
+## plane rides the normal offset on top of its plane-aligned base.
 func placement_transform(data: MBMeshData) -> Transform3D:
 	if shape_id == &"trim":
 		return _trim_placement()
@@ -339,7 +338,7 @@ func end_base() -> bool:
 	if maxf(u_size, v_size) < min_extent:
 		reset()
 		return false
-	# Stand-off shapes (sprite, plane) do not grow a third dimension: the next
+	# Stand-off shapes (plane) do not grow a third dimension: the next
 	# stage lifts the sheet off the surface instead, so the value the base drag
 	# sized stays the shape's final size.
 	state = State.OFFSET if MBShapeParams.height_drags_offset(shape_id) else State.HEIGHT
@@ -350,24 +349,12 @@ func end_base() -> bool:
 	_apply_drag_extents()
 	return true
 
-## Sprite-style anchor placement: a single press pins the shape ON the
-## surface (no base rect — the drag stages are skipped entirely); mouse
-## motion then displaces it along the captured normal (OFFSET state).
-func begin_anchor(surface_point: Vector3, surface_normal: Vector3, view_z: Vector3) -> void:
-	begin(surface_point, surface_normal, view_z)
-	state = State.OFFSET
-	facing = Vector3.ZERO  # no base drag → no facing heuristic, no arrow
-	# begin() seeded the size dims from the zero rect; the anchor flow never
-	# drags a base, so the shape keeps its default parameters.
-	values = MBShapeParams.get_default_values(shape_id)
-	base_values = values.duplicate()
-
-## Updates the height (or the sprite's / plane's normal offset) from a world
+## Updates the height (or the plane's normal offset) from a world
 ## point (already projected onto the view-parallel plane by the caller). On
 ## walls the normal extent maps to the shape's DEPTH (the shape grows along
 ## the face normal); on floors it maps to the height. The facing arrow LOCKS
-## at the base release — height motion must not re-point it. The sprite/plane
-## offset never goes negative (they ride ON the surface, not through it);
+## at the base release — height motion must not re-point it. The plane's
+## offset never goes negative (it rides ON the surface, not through it);
 ## height-param shapes keep signed growth (negative = below).
 func update_height_point(world_point: Vector3) -> void:
 	if state != State.HEIGHT and state != State.OFFSET:
@@ -414,7 +401,7 @@ func base_rect_corners() -> PackedVector3Array:
 		rect_center - u + v,
 	])
 
-## LMB click in HEIGHT (or the sprite's OFFSET): keep the shape, open the
+## LMB click in HEIGHT (or the plane's OFFSET): keep the shape, open the
 ## params modal.
 func confirm_height() -> void:
 	if state == State.HEIGHT or state == State.OFFSET:
@@ -566,8 +553,6 @@ func get_extents_readout() -> String:
 				var h: float = float(values.get("height", height))
 				return "W: %.2fm  D: %.2fm  H: %.2fm" % [w, d, h]
 		State.OFFSET:
-			if shape_id == &"sprite":
-				return "Offset: %.2fm" % height
 			return "W: %.2fm  D: %.2fm  Offset: %.2fm" % [
 				float(values.get("width", u_size)),
 				float(values.get("depth", v_size)),
@@ -585,10 +570,7 @@ func get_cursor_extents_text() -> String:
 		State.HEIGHT:
 			return "(%.2f, %.2f, %.2f)" % [u_size, v_size, absf(height)]
 		State.OFFSET:
-			# The sprite has no base rect (it is sized by its parameters), the
-			# plane's footprint is what the base drag just drew.
-			if shape_id == &"sprite":
-				return "(0.00, 0.00, %.2f)" % absf(height)
+			# The plane's footprint is what the base drag just drew.
 			return "(%.2f, %.2f, %.2f)" % [u_size, v_size, absf(height)]
 		_:
 			return ""
@@ -597,7 +579,7 @@ func get_cursor_extents_text() -> String:
 ## perpendicular (width).
 func _apply_drag_extents() -> void:
 	if state == State.OFFSET:
-		return  # anchor flow (sprite): the drag drives the normal offset only
+		return  # the drag drives the normal offset only, not the footprint
 	if shape_id == &"trim":
 		# Trim: the drag IS the strip's face — the LONGER side of the rect is
 		# the run (length), the shorter is the height, and the DEPTH is never

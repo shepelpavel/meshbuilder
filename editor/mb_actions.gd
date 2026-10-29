@@ -97,7 +97,6 @@ const ACTIONS: Dictionary = {
 	# Smoothing Groups & Normals
 	"smooth_auto":          { "label": "Normals: Auto-Smooth Mesh (45 deg)","keys": [] },
 	# Dedicated Tools
-	"tool_sprite":     { "label": "Tool: Place Billboard / Sprite", "keys": [[KEY_B, 0, 1, 0]] },
 	# Environment / Time of Day
 	"env_dawn":        { "label": "Environment: Dawn", "keys": [] },
 	"env_day":         { "label": "Environment: Day", "keys": [] },

@@ -71,14 +71,6 @@ static func get_param_defs(shape_id: StringName) -> Array:
 				_value_def("height", "Height", 0.1, 100.0, 1.0, "m"),
 				_count_def("sides", "Sides", 3, 64, 8),
 			]
-		&"sprite":
-			return [
-				_value_def("width", "Width", 0.1, 100.0, 1.0, "m"),
-				_value_def("height", "Height", 0.1, 100.0, 1.0, "m"),
-				_bool_def("lit", "Lit (Shaded)", false),
-				_bool_def("cast_shadow", "Cast Shadows", true),
-				_bool_def("billboard", "Auto Orient To Camera", true),
-			]
 		&"arch":
 			return [
 				_value_def("radius", "Radius", 0.1, 50.0, 1.0, "m"),
@@ -137,8 +129,6 @@ static func get_default_values(shape_id: StringName) -> Dictionary:
 	var out := {}
 	for def in get_param_defs(shape_id):
 		out[def["name"]] = float(def["default"])
-	if shape_id == &"sprite" and not out.has("depth"):
-		out["depth"] = out.get("height", 1.0)
 	return out
 
 ## Regenerates the shape's MBMeshData from a (possibly partial) values dict.
@@ -175,10 +165,6 @@ static func build(shape_id: StringName, values: Dictionary = {}) -> MBMeshData:
 			data = MBShapeCylinder.create_pipe(v["radius"], v["height"], v["thickness"], int(v["sides"]))
 		&"cone":
 			data = MBShapeCylinder.create_cone(v["radius"], v["height"], int(v["sides"]))
-		&"sprite":
-			var sw: float = float(v.get("width", 1.0))
-			var sh: float = float(v.get("height", v.get("depth", 1.0)))
-			data = MBShapeGenerators.create_sprite(sw, sh)
 		&"arch":
 			data = MBShapeComplex.create_arch(v["radius"], v["depth"], v["thickness"], int(v["sides"]), v["sweep"])
 		&"sphere":
@@ -284,11 +270,9 @@ static func build(shape_id: StringName, values: Dictionary = {}) -> MBMeshData:
 
 ## True when the shape has parameters the creation drag cannot express
 ## (steps, sides, thickness, sweep...). Simple size-only shapes (cube,
-## prism, plane, sprite) skip the placement modal entirely — the shape is
+## prism, plane) skip the placement modal entirely — the shape is
 ## finalized at the confirming click; Edit Params can always be used later.
 static func needs_params_modal(shape_id: StringName) -> bool:
-	if shape_id == &"sprite":
-		return false
 	for def in get_param_defs(shape_id):
 		if not (def["name"] in ["width", "height", "depth", "radius", "outer_radius"]):
 			return true
@@ -320,7 +304,7 @@ static func facing_across_dominant(shape_id: StringName) -> bool:
 ## value the base drag left: value = base_value + rate * height. The rate is
 ## chosen so the shape's topmost point follows the cursor 1:1 (sphere top =
 ## 2·radius → 0.5; arch top = radius → 1.0). Empty for shapes with a real
-## height param (absolute mapping) and for the sprite (offset flow).
+## height param (absolute mapping) and for the plane (offset flow).
 static func height_drag_param(shape_id: StringName) -> Dictionary:
 	match shape_id:
 		&"sphere":
@@ -333,7 +317,7 @@ static func height_drag_param(shape_id: StringName) -> Dictionary:
 
 ## True when the shape must stay sitting ON the surface no matter which way
 ## the height drag goes (round shapes shrink instead of growing below; the
-## sprite and the plane ride the normal). Shapes with a real height param keep
+## plane rides the normal). Shapes with a real height param keep
 ## ProBuilder's negative-height "grow below the surface" behavior.
 static func stays_on_surface(shape_id: StringName) -> bool:
 	return height_drags_offset(shape_id) or not height_drag_param(shape_id).is_empty()
@@ -364,14 +348,13 @@ static func plane_flow_axis(normal: Vector3) -> Vector3:
 ## True when the creation height drag displaces the shape along the surface
 ## normal instead of resizing it — i.e. the third dimension is a STAND-OFF, not
 ## a size. Two shapes work this way:
-##   - sprite: click to anchor (no base drag), mouse to push off the surface.
 ##   - plane:  drag the sheet out parallel to the surface, then mouse to lift
 ##     it clear of that surface (a waterfall sheet hanging in front of a wall,
 ##     a sign board, a floating decal plane).
 ## For both, the drag/offset is clamped at >= 0: the plane never sinks into
 ## the surface it was drawn on, and its size comes entirely from the base drag.
 static func height_drags_offset(shape_id: StringName) -> bool:
-	return shape_id == &"sprite" or shape_id == &"plane"
+	return shape_id == &"plane"
 
 ## True when shape creation commits immediately on mouse release (no height drag phase).
 static func commits_on_base_release(shape_id: StringName) -> bool:

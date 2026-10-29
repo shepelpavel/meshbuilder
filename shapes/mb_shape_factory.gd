@@ -16,7 +16,6 @@ enum ShapeType {
 	DOOR,
 	PIPE,
 	CONE,
-	SPRITE,
 	ARCH,
 	SPHERE,
 	TORUS,
@@ -34,7 +33,6 @@ const TYPE_NAMES: Array[StringName] = [
 	&"door",
 	&"pipe",
 	&"cone",
-	&"sprite",
 	&"arch",
 	&"sphere",
 	&"torus",
@@ -104,9 +102,6 @@ static func create_shape(id: StringName, size: Vector3 = Vector3.ONE) -> MBMeshD
 		&"cone":
 			var r: float = minf(size.x, size.z) * 0.5
 			data = MBShapeCylinder.create_cone(r, size.y)
-
-		&"sprite":
-			data = MBShapeGenerators.create_sprite(size.x, size.z)
 
 		&"arch":
 			var r: float = size.x * 0.5

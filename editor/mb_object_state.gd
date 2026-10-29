@@ -209,7 +209,7 @@ static func set_node_lit(node: GeometryInstance3D, lit: bool) -> Dictionary:
 	return {"kind": "surfaces", "node": mi, "old_overrides": old_overrides, "new_overrides": new_overrides}
 
 ## Applies `cast` to one node. Enabling keeps DOUBLE_SIDED nodes on their
-## double-sided setting (a sprite's shadow mode is "casts"); anything else
+## double-sided setting (a billboard's shadow mode is "casts"); anything else
 ## becomes ON. Returns the undo record (empty when already in state).
 static func set_node_shadow(node: GeometryInstance3D, cast: bool) -> Dictionary:
 	if node == null or not is_instance_valid(node):

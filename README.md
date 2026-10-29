@@ -16,8 +16,8 @@ pipeline, particle emitters, animated UV scrolling and the bundled offline docum
 
 ### Features
 
-**Shape creation.** 14 primitives — cube, stairs, curved stairs, prism, cylinder, plane, door, pipe,
-cone, sprite, arch, sphere, torus, n-gon. Drag the base on any surface or on the grid, move the mouse
+**Shape creation.** 13 primitives — cube, stairs, curved stairs, prism, cylinder, plane, door, pipe,
+cone, arch, sphere, torus, n-gon. Drag the base on any surface or on the grid, move the mouse
 to set the height, click to confirm. Shape parameters stay re-editable until you start editing the
 geometry by hand.
 
@@ -26,12 +26,13 @@ between modes. Operations: extrude, inset, multi-segment bevel, loop cut, knife,
 weld, bridge, connect, collapse, fill hole, detach, delete. Everything with live previews and full
 undo.
 
-**Materials and UV.** Project material palette with per-face assignment, tiling / offset / rotation /
-flips and per-face tint. A dedicated 2D UV editor with UV1 and UV2 channels, box unwrap, LightmapGI
-unwrap, island selection and snapping.
+**Materials and UV.** Project material palette with per-face assignment and a default material for
+new shapes. A dedicated 2D UV editor with UV1 and UV2 channels, box unwrap, LightmapGI unwrap,
+island selection and snapping — plus a per-face row (tiling, offset, rotation, flips, vertex-colour
+tint).
 
 **Extras.** CSG booleans (union / subtract / intersect), `MeshBuilderize` to turn a `MeshInstance3D`
-or a CSG node into an editable mesh, billboard sprite placement, a snapping grid.
+or a CSG node into an editable mesh, a snapping grid.
 
 ### Requirements
 
@@ -43,8 +44,8 @@ Copy the `addons/meshbuilder` folder into your project and enable **MeshBuilder*
 `Project → Project Settings → Plugins`.
 
 The UI lives in the editor's **bottom panel** as three tabs — *MeshBuilder* (toolbar),
-*Material & UV* (materials, shapes, sprites) and *UV Editor* (2D unwrapping) — so the plugin takes
-neither rows from the 3D viewport nor the right-hand dock column.
+*Materials* (project material palette) and *UV Editor* (2D unwrapping and per-face UV/tint) — so the
+plugin takes neither rows from the 3D viewport nor the right-hand dock column.
 
 ### No file export
 
@@ -69,8 +70,8 @@ same code is called `pb_*` / `PB*` there.
 
 ### Что умеет
 
-**Создание геометрии.** 14 примитивов (куб, лестница, винтовая лестница, призма, цилиндр, плоскость,
-дверь, труба, конус, спрайт, арка, сфера, тор, n-угольник) с рисованием по любой поверхности или по
+**Создание геометрии.** 13 примитивов (куб, лестница, винтовая лестница, призма, цилиндр, плоскость,
+дверь, труба, конус, арка, сфера, тор, n-угольник) с рисованием по любой поверхности или по
 сетке: тянем основание, двигаем мышь для высоты, клик — готово. Параметры шейпа остаются
 редактируемыми, пока геометрию не начали править руками.
 
@@ -78,12 +79,12 @@ same code is called `pb_*` / `PB*` there.
 режимами. Операции: extrude, inset, bevel (мультисегментный), loop cut, нож, subdivide, merge, weld,
 bridge, connect, collapse, fill hole, detach, delete. Всё с превью и полноценным undo.
 
-**Материалы и UV.** Палитра материалов проекта, назначение на грани, тайлинг/офсет/угол/флипы,
-тинт граней. Отдельный 2D UV-редактор: каналы UV1 и UV2, box-unwrap, развёртка для LightmapGI,
-острова, снап.
+**Материалы и UV.** Палитра материалов проекта с назначением на грани и материалом по умолчанию для
+новых фигур. Отдельный 2D UV-редактор: каналы UV1 и UV2, box-unwrap, развёртка для LightmapGI,
+острова, снап — плюс строка «Face:» для граней (тайлинг, офсет, угол, флипы, тинт вершинным цветом).
 
 **Прочее.** CSG-булевы (union / subtract / intersect), `MeshBuilderize` — превратить `MeshInstance3D`
-или CSG в редактируемый меш, спрайты-биллборды, сетка с привязками.
+или CSG в редактируемый меш, сетка с привязками.
 
 ### Требования
 
@@ -106,7 +107,7 @@ rsync -a --delete \
 Включить в `Проект → Настройки проекта → Плагины → MeshBuilder`.
 
 Всё живёт в **нижней панели** отдельными вкладками — «MeshBuilder» (тулбар), «Material & UV»
-(материалы, шейпы, спрайты) и «UV Editor» (2D-развёртка): так плагин не отъедает ни строки у
+(палитра материалов) и «UV Editor» (2D-развёртка и построчная правка UV/тинта): так плагин не отъедает ни строки у
 3D-вьюпорта, ни правую колонку доков.
 
 ### Экспорта в файл нет

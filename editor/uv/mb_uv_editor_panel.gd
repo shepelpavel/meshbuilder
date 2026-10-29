@@ -104,6 +104,20 @@ var _btn_texel_get: Button
 var _btn_texel_set: Button
 var _btn_export_png: Button
 
+# Face UV row: per-face tiling / offset / rotation / flips (moved here from the
+# Material & UV dock, which is now a pure material palette).
+var _face_uv_toolbar: HBoxContainer
+var _spin_face_u: SpinBox
+var _spin_face_v: SpinBox
+var _spin_face_off_u: SpinBox
+var _spin_face_off_v: SpinBox
+var _spin_face_angle: SpinBox
+var _btn_face_flip_u: CheckBox
+var _btn_face_flip_v: CheckBox
+var _btn_face_tint: ColorPickerButton
+var _btn_face_tint_reset: Button
+var _syncing_face_row: bool = false
+
 ## Optional UndoRedoManager reference for headless tests
 var undo_redo: Object = null
 
@@ -391,6 +405,95 @@ func _build_ui() -> void:
 	_btn_export_png.pressed.connect(_on_export_png_pressed)
 	_ops_toolbar.add_child(_btn_export_png)
 
+	# 3b. Row 4: Per-Face Tiling (procedural uv_scale/offset on selected faces)
+	_face_uv_toolbar = HBoxContainer.new()
+	_face_uv_toolbar.name = "FaceUvToolbar"
+	_face_uv_toolbar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_face_uv_toolbar.add_theme_constant_override("separation", 5)
+	add_child(_face_uv_toolbar)
+
+	var lbl_face := Label.new()
+	lbl_face.text = "Face:"
+	lbl_face.tooltip_text = "Per-face tiling: applies to selected faces without touching the UV unwrap"
+	_face_uv_toolbar.add_child(lbl_face)
+
+	var b_x2 := Button.new()
+	b_x2.text = "x2"
+	b_x2.tooltip_text = "Double the texture tiling on selected faces"
+	b_x2.pressed.connect(func(): _scale_face_tiling(2.0))
+	_face_uv_toolbar.add_child(b_x2)
+
+	var b_half := Button.new()
+	b_half.text = "÷2"
+	b_half.tooltip_text = "Halve the texture tiling on selected faces"
+	b_half.pressed.connect(func(): _scale_face_tiling(0.5))
+	_face_uv_toolbar.add_child(b_half)
+
+	var b_reset := Button.new()
+	b_reset.text = "Reset (1m)"
+	b_reset.tooltip_text = "Reset face tiling to one texture per metre, no offset, no rotation, no flips"
+	b_reset.pressed.connect(_reset_face_uvs)
+	_face_uv_toolbar.add_child(b_reset)
+
+	var b_diag := Button.new()
+	b_diag.text = "45°"
+	b_diag.tooltip_text = "Lay the texture diagonally across selected faces"
+	b_diag.pressed.connect(_apply_face_diagonal)
+	_face_uv_toolbar.add_child(b_diag)
+
+	_face_uv_toolbar.add_child(_make_vsep())
+
+	_spin_face_u = _make_face_spin("Tiling U (textures per metre across)", 0.05, 64.0, 0.05, 1.0, "U")
+	_face_uv_toolbar.add_child(_spin_face_u)
+	_spin_face_v = _make_face_spin("Tiling V (textures per metre down)", 0.05, 64.0, 0.05, 1.0, "V")
+	_face_uv_toolbar.add_child(_spin_face_v)
+
+	_face_uv_toolbar.add_child(_make_vsep())
+
+	_spin_face_off_u = _make_face_spin("Texture offset U", -8.0, 8.0, 0.01, 0.0, "")
+	_face_uv_toolbar.add_child(_spin_face_off_u)
+	_spin_face_off_v = _make_face_spin("Texture offset V", -8.0, 8.0, 0.01, 0.0, "")
+	_face_uv_toolbar.add_child(_spin_face_off_v)
+
+	_spin_face_angle = _make_face_spin("Texture rotation (degrees)", -180.0, 180.0, 1.0, 0.0, "°")
+	_face_uv_toolbar.add_child(_spin_face_angle)
+
+	_face_uv_toolbar.add_child(_make_vsep())
+
+	_btn_face_flip_u = CheckBox.new()
+	_btn_face_flip_u.text = "Flip U"
+	_btn_face_flip_u.tooltip_text = "Mirror the texture across U on selected faces"
+	_btn_face_flip_u.toggled.connect(func(_on: bool): _apply_face_uv_params())
+	_face_uv_toolbar.add_child(_btn_face_flip_u)
+
+	_btn_face_flip_v = CheckBox.new()
+	_btn_face_flip_v.text = "Flip V"
+	_btn_face_flip_v.tooltip_text = "Mirror the texture across V on selected faces"
+	_btn_face_flip_v.toggled.connect(func(_on: bool): _apply_face_uv_params())
+	_face_uv_toolbar.add_child(_btn_face_flip_v)
+
+	_face_uv_toolbar.add_child(_make_vsep())
+
+	var lbl_tint := Label.new()
+	lbl_tint.text = "Tint:"
+	lbl_tint.tooltip_text = "Vertex colour of the selected faces (visible in materials that use vertex colour as albedo)"
+	_face_uv_toolbar.add_child(lbl_tint)
+
+	_btn_face_tint = ColorPickerButton.new()
+	_btn_face_tint.name = "FaceTint"
+	_btn_face_tint.color = Color.WHITE
+	_btn_face_tint.edit_alpha = false
+	_btn_face_tint.custom_minimum_size = Vector2(44, 24)
+	_btn_face_tint.tooltip_text = "Vertex colour of the selected faces"
+	_btn_face_tint.color_changed.connect(_apply_face_tint)
+	_face_uv_toolbar.add_child(_btn_face_tint)
+
+	_btn_face_tint_reset = Button.new()
+	_btn_face_tint_reset.text = "White"
+	_btn_face_tint_reset.tooltip_text = "Reset the vertex colour of the selected faces to white"
+	_btn_face_tint_reset.pressed.connect(func(): _apply_face_tint(Color.WHITE))
+	_face_uv_toolbar.add_child(_btn_face_tint_reset)
+
 	# 4. Canvas Container
 	var canvas_container := PanelContainer.new()
 	canvas_container.name = "CanvasContainer"
@@ -664,6 +767,7 @@ func _update_status() -> void:
 		return
 	if active_mesh == null or active_mesh.mb_mesh_data == null:
 		_lbl_status.text = "No mesh selected"
+		_sync_face_row()
 		return
 
 	if canvas == null:
@@ -684,6 +788,7 @@ func _update_status() -> void:
 			sel_text = "%d Faces" % c if c > 0 else "0 Faces"
 
 	_lbl_status.text = "Mode: %s | %s selected" % [mode_str, sel_text]
+	_sync_face_row()
 
 func _get_undo_redo() -> Object:
 	if undo_redo != null:
@@ -726,6 +831,130 @@ func _get_target_vertices() -> Array:
 	for vi in range(active_mesh.mb_mesh_data.positions.size()):
 		all_verts.append(vi)
 	return all_verts
+
+func _make_face_spin(tooltip: String, mn: float, mx: float, step: float, default_value: float, suffix: String) -> SpinBox:
+	var sp := SpinBox.new()
+	sp.min_value = mn
+	sp.max_value = mx
+	sp.step = step
+	sp.value = default_value
+	sp.tooltip_text = tooltip
+	sp.suffix = suffix
+	sp.custom_minimum_size = Vector2(78, 24)
+	sp.value_changed.connect(func(_v: float): _apply_face_uv_params())
+	return sp
+
+func _face_target_faces() -> Array:
+	var idxs: Array = _get_target_faces()
+	var faces: Array = []
+	if active_mesh == null or active_mesh.mb_mesh_data == null:
+		return faces
+	for fi in idxs:
+		if fi >= 0 and fi < active_mesh.mb_mesh_data.faces.size():
+			faces.append(active_mesh.mb_mesh_data.faces[fi])
+	return faces
+
+func _scale_face_tiling(factor: float) -> void:
+	_execute_uv_op("Scale Face Tiling", func() -> bool:
+		var faces: Array = _face_target_faces()
+		if faces.is_empty():
+			return false
+		for face: MBFace in faces:
+			MBUv.scale_face_tiling(face, factor)
+		MBUv.refresh_mesh_uvs(active_mesh.mb_mesh_data)
+		return true)
+
+func _reset_face_uvs() -> void:
+	_execute_uv_op("Reset Face UVs", func() -> bool:
+		var faces: Array = _face_target_faces()
+		if faces.is_empty():
+			return false
+		for face: MBFace in faces:
+			face.uv_scale = Vector2.ONE
+			face.uv_offset = Vector2.ZERO
+			face.uv_rotation = 0.0
+			face.uv_flip_u = false
+			face.uv_flip_v = false
+		MBUv.refresh_mesh_uvs(active_mesh.mb_mesh_data)
+		return true)
+
+func _apply_face_diagonal() -> void:
+	_execute_uv_op("45° Diagonal UV Tiling", func() -> bool:
+		var faces: Array = _face_target_faces()
+		if faces.is_empty():
+			return false
+		for face: MBFace in faces:
+			MBUv.set_face_45_degree_diagonal(face)
+		MBUv.refresh_mesh_uvs(active_mesh.mb_mesh_data)
+		return true)
+
+func _apply_face_uv_params() -> void:
+	if _syncing_face_row:
+		return
+	_execute_uv_op("Change Face UVs", func() -> bool:
+		var faces: Array = _face_target_faces()
+		if faces.is_empty():
+			return false
+		for face: MBFace in faces:
+			face.uv_scale = Vector2(_spin_face_u.value, _spin_face_v.value)
+			face.uv_offset = Vector2(_spin_face_off_u.value, _spin_face_off_v.value)
+			face.uv_rotation = _spin_face_angle.value
+			face.uv_flip_u = _btn_face_flip_u.button_pressed
+			face.uv_flip_v = _btn_face_flip_v.button_pressed
+		MBUv.refresh_mesh_uvs(active_mesh.mb_mesh_data)
+		return true)
+
+func _apply_face_tint(color: Color) -> void:
+	if _syncing_face_row:
+		return
+	_execute_uv_op("Change Face Tint", func() -> bool:
+		var faces: Array = _face_target_faces()
+		if faces.is_empty():
+			return false
+		var data: MBMeshData = active_mesh.mb_mesh_data
+		var vertex_count: int = data.positions.size()
+		if data.colors.size() != vertex_count:
+			data.colors.resize(vertex_count)
+			data.colors.fill(Color.WHITE)
+		for face: MBFace in faces:
+			for idx in face.get_distinct_indexes():
+				if idx >= 0 and idx < vertex_count:
+					data.colors[idx] = color
+		return true)
+
+## Mirrors the first selected face into the row (values, not actions).
+func _sync_face_row() -> void:
+	if _spin_face_u == null:
+		return
+	var faces: Array = _face_target_faces()
+	var enabled := not faces.is_empty()
+	for sp: SpinBox in [_spin_face_u, _spin_face_v, _spin_face_off_u, _spin_face_off_v, _spin_face_angle]:
+		sp.editable = enabled
+	for c: CheckBox in [_btn_face_flip_u, _btn_face_flip_v]:
+		c.disabled = not enabled
+	if _btn_face_tint != null:
+		_btn_face_tint.disabled = not enabled
+	if _btn_face_tint_reset != null:
+		_btn_face_tint_reset.disabled = not enabled
+	if not enabled:
+		return
+	var face: MBFace = faces[0]
+	_syncing_face_row = true
+	_spin_face_u.value = face.uv_scale.x
+	_spin_face_v.value = face.uv_scale.y
+	_spin_face_off_u.value = face.uv_offset.x
+	_spin_face_off_v.value = face.uv_offset.y
+	_spin_face_angle.value = face.uv_rotation
+	_btn_face_flip_u.button_pressed = face.uv_flip_u
+	_btn_face_flip_v.button_pressed = face.uv_flip_v
+	if _btn_face_tint != null and active_mesh != null and active_mesh.mb_mesh_data != null:
+		var data: MBMeshData = active_mesh.mb_mesh_data
+		var tint := Color.WHITE
+		var idxs := face.get_distinct_indexes()
+		if not idxs.is_empty() and idxs[0] >= 0 and idxs[0] < data.colors.size():
+			tint = data.colors[idxs[0]]
+		_btn_face_tint.color = tint
+	_syncing_face_row = false
 
 func _execute_uv_op(action_name: String, op_callable: Callable) -> void:
 	if active_mesh == null or active_mesh.mb_mesh_data == null:
