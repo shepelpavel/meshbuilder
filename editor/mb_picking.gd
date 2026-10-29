@@ -259,11 +259,12 @@ static func pick_edge(mesh_data: MBMeshData, mesh_transform: Transform3D,
 	if candidates.is_empty():
 		return EdgePickResult.new()
 
-	# Tier 1: visible candidates. Tier 2 (only if no visible candidate):
-	# hidden ones — selecting far edges through the mesh is intentional UX.
-	# X-Ray (`include_hidden`) drops the tiers: every candidate competes by
-	# screen distance, so elements on the far side pick like the near ones.
-	var tiers: Array = [false, true]
+	# Visible candidates only. Hidden (far-side) edges used to be a fallback
+	# tier — a click whose nearest VISIBLE edge was a few pixels away grabbed an
+	# edge on the BACK of the model through it, with X-Ray off (reported bug).
+	# Hidden elements are selectable only in X-Ray, where every candidate
+	# competes by screen distance.
+	var tiers: Array = [false]
 	if include_hidden:
 		tiers = [null]
 	for occluded_flag in tiers:
