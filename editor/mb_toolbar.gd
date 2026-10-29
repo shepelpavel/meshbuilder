@@ -206,7 +206,7 @@ func _build_ui() -> void:
 	_make_op_button("Loop Cut", "insert_edge_loop", "Insert an edge loop through the ring of quads crossed by the selected edge", "icon_loop_cut.svg")
 	_make_op_button("Merge", "merge_faces", "Merge edge-adjacent selected faces into one n-gon", "icon_merge.svg")
 	_make_op_button("Subdiv", "subdivide_faces", "Subdivide the selected quads into 4", "icon_subdivide.svg")
-	_make_op_button("Weld", "weld_vertices", "Weld the selected vertices together at their centroid", "icon_weld.svg")
+	_make_op_button("Merge", "weld_vertices", "Merge the selected vertices into their centroid (M)", "icon_weld.svg")
 	_make_op_button("Detach", "detach_faces", "Detach the selected faces into a new MBMesh node", "icon_detach.svg")
 	_make_op_button("Del", "delete_selection", "Delete selection: faces, edges or vertices (X)", "icon_delete.svg")
 

@@ -72,7 +72,7 @@ const ACTIONS: Dictionary = {
 	"op_loop_cut":     { "label": "Mesh Op: Insert Edge Loop", "keys": [[KEY_R, 1, 0, 0]] },
 	"op_merge":        { "label": "Mesh Op: Merge Faces",     "keys": [] },
 	"op_subdivide":    { "label": "Mesh Op: Subdivide Faces", "keys": [] },
-	"op_weld":         { "label": "Mesh Op: Weld Vertices",   "keys": [] },
+	"op_weld":         { "label": "Mesh Op: Merge Vertices",  "keys": [[KEY_M, 0, 0, 0]] },
 	"op_detach":       { "label": "Mesh Op: Detach Faces",    "keys": [] },
 	"op_delete":       { "label": "Mesh Op: Delete Selection", "keys": [[KEY_X, 0, 0, 0]] },
 	"op_knife":        { "label": "Mesh Op: Knife Tool",     "keys": [] },
