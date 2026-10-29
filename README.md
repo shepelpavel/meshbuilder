@@ -4,7 +4,8 @@ In-editor 3D modeling for Godot: shape primitives, vertex/edge/face editing, mes
 UV editor, CSG booleans. Fork of [PoiBuilder](https://github.com/Francesco149/poibuilder) (MIT),
 trimmed down to prop modeling.
 
-Русское описание — ниже, раздел «По-русски».
+Full manual: [English](docs/README.en.md) · [по-русски](docs/README.ru.md).
+Русское краткое описание — ниже, раздел «По-русски».
 
 ## English
 
@@ -61,6 +62,8 @@ renamed for MeshBuilder (`mb_*` files, `MB*` classes); when porting a fix from u
 same code is called `pb_*` / `PB*` there.
 
 ## По-русски
+
+Полное руководство: [docs/README.ru.md](docs/README.ru.md) (English: [docs/README.en.md](docs/README.en.md)).
 
 Редактор геометрии внутри редактора Godot: примитивы drag-to-create, правка вершин/рёбер/граней,
 операции меша, UV-редактор, булевы через CSG.
