@@ -957,6 +957,8 @@ func set_xray(on: bool) -> void:
 			MBXray.disable(_xray_node)
 		_xray_node = null
 		xray_on = false
+	if gizmo_plugin != null and gizmo_plugin.element_editor != null:
+		gizmo_plugin.element_editor.xray = xray_on
 	if toolbar != null:
 		toolbar.set_xray_active(xray_on)
 

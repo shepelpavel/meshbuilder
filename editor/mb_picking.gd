@@ -197,7 +197,7 @@ static func pick_faces_all(mesh_data: MBMeshData, mesh_transform: Transform3D,
 ##   gizmo can orient to the side you picked from.
 ## Returns EdgePickResult with edge != null on hit, or null edge on miss.
 static func pick_edge(mesh_data: MBMeshData, mesh_transform: Transform3D,
-		screen_pos: Vector2, camera: Camera3D) -> EdgePickResult:
+		screen_pos: Vector2, camera: Camera3D, include_hidden: bool = false) -> EdgePickResult:
 	if mesh_data == null or camera == null:
 		return EdgePickResult.new()
 
@@ -261,19 +261,26 @@ static func pick_edge(mesh_data: MBMeshData, mesh_transform: Transform3D,
 
 	# Tier 1: visible candidates. Tier 2 (only if no visible candidate):
 	# hidden ones — selecting far edges through the mesh is intentional UX.
-	for occluded_flag in [false, true]:
+	# X-Ray (`include_hidden`) drops the tiers: every candidate competes by
+	# screen distance, so elements on the far side pick like the near ones.
+	var tiers: Array = [false, true]
+	if include_hidden:
+		tiers = [null]
+	for occluded_flag in tiers:
 		var best_dist: float = INF
 		var nearest_depth: float = INF
 		var best: EdgePickResult = null
 		for c in candidates:
-			if c[3] != occluded_flag:
+			if occluded_flag != null and c[3] != occluded_flag:
 				continue
 			if c[0] < best_dist:
 				best_dist = c[0]
 		if is_inf(best_dist):
 			continue
 		for c in candidates:
-			if c[3] != occluded_flag or c[0] > best_dist + PICK_DEPTH_TIE_BREAK_PIXELS:
+			if occluded_flag != null and c[3] != occluded_flag:
+				continue
+			if c[0] > best_dist + PICK_DEPTH_TIE_BREAK_PIXELS:
 				continue
 			if c[1] < nearest_depth:
 				nearest_depth = c[1]
@@ -293,7 +300,7 @@ static func pick_edge(mesh_data: MBMeshData, mesh_transform: Transform3D,
 ## the cursor is returned in face_index for side-aware gizmo orientation.
 ## Returns VertexPickResult with common_index >= 0 on hit, or -1 on miss.
 static func pick_vertex(mesh_data: MBMeshData, mesh_transform: Transform3D,
-		screen_pos: Vector2, camera: Camera3D) -> VertexPickResult:
+		screen_pos: Vector2, camera: Camera3D, include_hidden: bool = false) -> VertexPickResult:
 	if mesh_data == null or camera == null:
 		return VertexPickResult.new()
 
@@ -338,17 +345,22 @@ static func pick_vertex(mesh_data: MBMeshData, mesh_transform: Transform3D,
 	if candidates.is_empty():
 		return VertexPickResult.new()
 
-	for occluded_flag in [false, true]:
+	var tiers: Array = [false, true]
+	if include_hidden:
+		tiers = [null]
+	for occluded_flag in tiers:
 		var best_dist: float = INF
 		for c in candidates:
-			if c[4] == occluded_flag:
+			if occluded_flag == null or c[4] == occluded_flag:
 				best_dist = minf(best_dist, c[0])
 		if is_inf(best_dist):
 			continue
 		var best := VertexPickResult.new()
 		var nearest_depth: float = INF
 		for c in candidates:
-			if c[4] != occluded_flag or c[0] > best_dist + PICK_DEPTH_TIE_BREAK_PIXELS:
+			if occluded_flag != null and c[4] != occluded_flag:
+				continue
+			if c[0] > best_dist + PICK_DEPTH_TIE_BREAK_PIXELS:
 				continue
 			if c[1] < nearest_depth:
 				nearest_depth = c[1]

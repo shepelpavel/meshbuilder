@@ -26,6 +26,10 @@ extends RefCounted
 ## Shared editor state (select mode, orientation space, selection).
 var editor: MBEditor = null
 
+## X-Ray view: picking ignores occlusion, so elements on the far side of the
+## mesh are selectable (click tiers and frustum filtering drop out).
+var xray: bool = false
+
 ## The plugin's grid/snapping state (null = snapping off; injected by the
 ## plugin). MOVE drags snap the translation delta, ROTATE drags snap the
 ## angle, EXTRUDE snaps the cap distance along the normal; scale and inset
@@ -631,7 +635,7 @@ func pick_ray(mesh_data: MBMeshData, mesh_transform: Transform3D,
 			if id >= 0 and record_side:
 				pick_side_faces[id] = id
 		MBEditor.SelectMode.EDGE:
-			var result: MBPicking.EdgePickResult = MBPicking.pick_edge(mesh_data, mesh_transform, screen_pos, camera)
+			var result: MBPicking.EdgePickResult = MBPicking.pick_edge(mesh_data, mesh_transform, screen_pos, camera, xray)
 			if result.edge != null:
 				id = _common_edge_index(mesh_data, result.edge)
 				if id >= 0:
@@ -639,7 +643,7 @@ func pick_ray(mesh_data: MBMeshData, mesh_transform: Transform3D,
 					if result.face_index >= 0 and record_side:
 						pick_side_faces[id] = result.face_index
 		MBEditor.SelectMode.VERTEX:
-			var vresult: MBPicking.VertexPickResult = MBPicking.pick_vertex(mesh_data, mesh_transform, screen_pos, camera)
+			var vresult: MBPicking.VertexPickResult = MBPicking.pick_vertex(mesh_data, mesh_transform, screen_pos, camera, xray)
 			if vresult.common_index >= 0:
 				id = vresult.common_index
 				hit_dist = camera.global_position.distance_to(mesh_transform * element_origin(mesh_data, id))
@@ -652,7 +656,7 @@ func pick_ray(mesh_data: MBMeshData, mesh_transform: Transform3D,
 	# closer to the camera than this element, this element is occluded. Returning -1
 	# allows the engine to fall through to selecting the closer object (e.g. clicking
 	# an object sitting on top of a massive floor selects the object, not the floor).
-	if _is_element_occluded_by_other_pbmesh(mesh_data, hit_dist, ray_origin, ray_dir, camera):
+	if not xray and _is_element_occluded_by_other_pbmesh(mesh_data, hit_dist, ray_origin, ray_dir, camera):
 		return -1
 
 	return id
@@ -691,7 +695,7 @@ func pick_frustum(mesh_data: MBMeshData, mesh_transform: Transform3D,
 				var origin := mesh_transform * element_origin(mesh_data, fi)
 				if not _point_in_frustum(origin, planes):
 					continue
-				if camera != null and _point_occluded(mesh_data, mesh_transform, camera, origin, fi):
+				if camera != null and not xray and _point_occluded(mesh_data, mesh_transform, camera, origin, fi):
 					continue
 				result.append(fi)
 		MBEditor.SelectMode.EDGE:
@@ -700,7 +704,7 @@ func pick_frustum(mesh_data: MBMeshData, mesh_transform: Transform3D,
 				var origin := mesh_transform * element_origin(mesh_data, ei)
 				if not _point_in_frustum(origin, planes):
 					continue
-				if camera != null and _point_occluded(mesh_data, mesh_transform, camera, origin, -1, edges[ei]):
+				if camera != null and not xray and _point_occluded(mesh_data, mesh_transform, camera, origin, -1, edges[ei]):
 					continue
 				result.append(ei)
 		MBEditor.SelectMode.VERTEX:
@@ -710,7 +714,7 @@ func pick_frustum(mesh_data: MBMeshData, mesh_transform: Transform3D,
 					continue
 				if camera != null:
 					var sv: MBSharedVertex = mesh_data.shared_vertices[sv_idx]
-					if _point_occluded(mesh_data, mesh_transform, camera, origin, -1, null, sv):
+					if not xray and _point_occluded(mesh_data, mesh_transform, camera, origin, -1, null, sv):
 						continue
 				result.append(sv_idx)
 	return result
