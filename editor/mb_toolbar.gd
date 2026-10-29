@@ -371,12 +371,24 @@ func _update_row_layout() -> void:
 	for c in get_children():
 		remove_child(c)
 
+	# Row 1: element modes + transform, then the selection operations
+	# (the short first row is filled up with them instead of starting its own).
 	_add_row([
 		[_btn_object, _btn_vertex, _btn_edge, _btn_face, _btn_texture],
 		[_btn_move, _btn_rotate, _btn_scale],
 		[_btn_space],
+		[
+			_op_buttons["select_all"], _op_buttons["invert_selection"], _op_buttons["grow_selection"],
+			_op_buttons["shrink_selection"], _op_buttons["select_coplanar"], _op_buttons["select_similar"],
+			_op_buttons["select_boundary"], _op_buttons["select_face_loop"], _op_buttons["select_face_ring"],
+		],
+		[_op_buttons["smooth_auto"]],
 	])
+	# Row 2: snapping / grid / display in front, then the mesh operations.
 	_add_row([
+		[_btn_vertex_snap, _btn_proportional, _spin_prop_radius],
+		[_btn_grid_panel, _lbl_grid_state],
+		[_btn_obj_lit, _btn_obj_shadow, _btn_xray],
 		[
 			_op_buttons["extrude_faces"], _op_buttons["inset_faces"], _op_buttons["bevel_edges"],
 			_op_buttons["subdivide_faces"], _op_buttons["merge_faces"], _op_buttons["delete_selection"],
@@ -387,19 +399,7 @@ func _update_row_layout() -> void:
 			_op_buttons["weld_vertices"], _op_buttons["detach_faces"],
 		],
 	])
-	_add_row([
-		[
-			_op_buttons["select_all"], _op_buttons["invert_selection"], _op_buttons["grow_selection"],
-			_op_buttons["shrink_selection"], _op_buttons["select_coplanar"], _op_buttons["select_similar"],
-			_op_buttons["select_boundary"], _op_buttons["select_face_loop"], _op_buttons["select_face_ring"],
-		],
-		[_op_buttons["smooth_auto"]],
-	])
-	_add_row([
-		[_btn_vertex_snap, _btn_proportional, _spin_prop_radius],
-		[_btn_grid_panel, _lbl_grid_state],
-		[_btn_obj_lit, _btn_obj_shadow, _btn_xray],
-	])
+	# Row 3: creation, object ops, CSG, trim, panels.
 	_add_row([
 		[_btn_new_shape, _btn_ngon, _btn_edit_params],
 		[
@@ -409,7 +409,6 @@ func _update_row_layout() -> void:
 		[_op_buttons["csg_union"], _op_buttons["csg_subtract"], _op_buttons["csg_intersect"]],
 		[_btn_trim_walls],
 		[_btn_materials, _btn_uv_editor, _btn_overlay, _btn_recover_overlay, _btn_settings],
-		[_btn_env],
 	])
 
 func _add_row(groups: Array) -> void:
