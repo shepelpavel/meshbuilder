@@ -1705,6 +1705,15 @@ func _on_operation_requested(op_name: String) -> void:
 	if op_name == "smooth_auto":
 		_perform_auto_smooth()
 		return
+	if op_name == "mirror_model":
+		_toggle_model_mirror(false)
+		return
+	if op_name == "mirror_axis_next":
+		_toggle_model_mirror(true)
+		return
+	if op_name == "mirror_apply":
+		_apply_model_mirror()
+		return
 	# Knife needs a mesh, not an element mode: arming it in Object mode and then
 	# clicking a face is a normal way to start a cut, so it sits before the gate.
 	if op_name == "knife_tool":
@@ -2121,6 +2130,84 @@ func _perform_merge_objects() -> void:
 				d.get_parent().remove_child(d)
 		if logger:
 			logger.info("plugin", "Merged %d objects into %s" % [donors.size(), target.name])
+
+## Mirror modifier (Blender's Mirror): the mesh keeps the half you model and
+## the render gets its reflection, so editing one side updates the other.
+## Nothing is baked — the reflection is compiled at render time.
+func _toggle_model_mirror(cycle_axis: bool) -> void:
+	var mesh := editor.active_mesh
+	if mesh == null or mesh.mb_mesh_data == null:
+		_op_hint("Mirror: select an MBMesh first")
+		return
+	var data := mesh.mb_mesh_data
+	var before := MBCommand.copy_mesh_data(data)
+
+	if cycle_axis:
+		data.mirror_axis = (data.mirror_axis + 1) % 3
+		if not data.mirror_enabled:
+			data.mirror_enabled = true
+	else:
+		data.mirror_enabled = not data.mirror_enabled
+
+	var after := MBCommand.copy_mesh_data(data)
+	var undo := get_undo_redo()
+	if undo != null:
+		undo.create_action("Mirror Model", UndoRedo.MERGE_DISABLE, mesh)
+		undo.add_do_method(self, "_restore_mesh_snapshot", mesh.get_instance_id(), after)
+		undo.add_undo_method(self, "_restore_mesh_snapshot", mesh.get_instance_id(), before)
+		undo.commit_action()
+
+	mesh.rebuild()
+	mesh.update_gizmos()
+	if toolbar != null:
+		toolbar._on_selection_info_changed()
+	_op_hint("Mirror %s (axis %s)" % ["ON" if data.mirror_enabled else "OFF",
+		["X", "Y", "Z"][clampi(data.mirror_axis, 0, 2)]])
+
+## Bakes the live mirror into real geometry (the modifier then switches off,
+## since the reflection is now ordinary faces you can edit).
+func _apply_model_mirror() -> void:
+	var mesh := editor.active_mesh
+	if mesh == null or mesh.mb_mesh_data == null:
+		_op_hint("Mirror apply: select an MBMesh first")
+		return
+	var data := mesh.mb_mesh_data
+	var has_baked := false
+	for f in data.faces:
+		if f != null and f.mirror_copy:
+			has_baked = true
+			break
+	if not data.mirror_enabled and not has_baked:
+		_op_hint("Mirror apply: turn Mirror Model on first")
+		return
+
+	var before := MBCommand.copy_mesh_data(data)
+	var axis: int = clampi(data.mirror_axis, 0, 2)
+	var res := MBMeshOps.bake_mirror(data, axis)
+	if not res.get("ok", false):
+		_op_hint("Mirror apply: %s" % String(res.get("error", "failed")).replace("Mirror apply: ", ""))
+		return
+	# The reflection exists as faces now — a live modifier would double it.
+	data.mirror_enabled = false
+	var after := MBCommand.copy_mesh_data(data)
+
+	var undo := get_undo_redo()
+	if undo != null:
+		undo.create_action("Apply Mirror", UndoRedo.MERGE_DISABLE, mesh)
+		undo.add_do_method(self, "_restore_mesh_snapshot", mesh.get_instance_id(), after)
+		undo.add_undo_method(self, "_restore_mesh_snapshot", mesh.get_instance_id(), before)
+		undo.commit_action()
+
+	# Face indices moved: a selection left pointing at them would edit the wrong
+	# geometry.
+	if editor.selection != null:
+		editor.selection.clear_all()
+	mesh.rebuild()
+	mesh.update_gizmos()
+	if toolbar != null:
+		toolbar._on_selection_info_changed()
+	_op_hint("Mirror applied (%s): %d face(s) baked%s" % [["X", "Y", "Z"][axis], int(res.get("added", 0)),
+		", %d old copy(ies) replaced" % int(res.get("removed", 0)) if int(res.get("removed", 0)) > 0 else ""])
 
 func _perform_mirror_object() -> void:
 	var mesh := editor.active_mesh

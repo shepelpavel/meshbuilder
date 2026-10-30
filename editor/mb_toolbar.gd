@@ -76,6 +76,8 @@ const ICON_DIR := "res://addons/meshbuilder/icons/"
 # Internal UI & Layout
 # ==============================================================================
 
+var _btn_mirror_model: Button = null
+var _btn_mirror_apply: Button = null
 var _btn_vertex_snap: Button
 var _btn_proportional: Button
 var _spin_prop_radius: SpinBox
@@ -233,6 +235,9 @@ func _build_ui() -> void:
 
 	_make_op_button("Merge Objs", "merge_objects", "Merge selected MBMesh nodes into one", "icon_merge_objects.svg")
 	_make_op_button("Mirror", "mirror_object", "Mirror object geometry across X", "icon_mirror.svg")
+	_btn_mirror_model = _make_mirror_model_button()
+	_btn_mirror_apply = _make_op_button("Apply Mirror", "mirror_apply",
+		"bake the mirror into real geometry (the modifier switches off)", "icon_mirror_apply.svg")
 	_make_op_button("Center Pivot", "center_pivot", "Center pivot to bounding box", "icon_center_pivot.svg")
 	_make_op_button("Freeze Xform", "freeze_transform", "Freeze transform into vertex positions", "icon_freeze_transform.svg")
 	var p_btn := _make_op_button("MeshBuilderize", "meshbuilderize", "Convert selected MeshInstance3D or CSG to editable MBMesh", "icon_meshbuilderize.svg")
@@ -413,7 +418,7 @@ func _update_row_layout() -> void:
 	_add_row([
 		[_btn_new_shape, _btn_ngon, _btn_edit_params],
 		[
-			_op_buttons["merge_objects"], _op_buttons["mirror_object"], _op_buttons["center_pivot"],
+			_op_buttons["merge_objects"], _op_buttons["mirror_object"], _btn_mirror_model, _btn_mirror_apply, _op_buttons["center_pivot"],
 			_op_buttons["freeze_transform"], _op_buttons["meshbuilderize"],
 		],
 		[_btn_merge_by_distance],
@@ -465,6 +470,31 @@ func _create_mode_button(text: String, mode: MBEditor.SelectMode, icon_name: Str
 	btn.button_group = _mode_group
 	btn.tooltip_text = "%s select mode (%s)" % [text, ["", "H", "J", "K", "6"][mode]]
 	btn.pressed.connect(_on_mode_button_pressed.bind(mode))
+	return btn
+
+## Mirror modifier toggle. Plain click turns the reflection on/off, Shift+click
+## cycles the axis (X → Y → Z); the pressed state mirrors the mesh's flag.
+func _make_mirror_model_button() -> Button:
+	var btn := Button.new()
+	btn.name = "OpMirrorModel"
+	btn.flat = true
+	btn.toggle_mode = true
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.disabled = true
+	btn.tooltip_text = "Mirror Model: reflection across X (Shift+click: switch axis X / Y / Z)"
+	var ico := _load_icon("icon_mirror_model.svg")
+	if ico != null:
+		btn.icon = ico
+	else:
+		btn.text = "Mirror Model"
+	btn.gui_input.connect(func(event: InputEvent) -> void:
+		if not (event is InputEventMouseButton) or not event.pressed or event.button_index != MOUSE_BUTTON_LEFT:
+			return
+		btn.accept_event()
+		var shift := (event as InputEventMouseButton).shift_pressed or Input.is_key_pressed(KEY_SHIFT)
+		operation_requested.emit("mirror_axis_next" if shift else "mirror_model")
+	)
+	_op_buttons["mirror_model"] = btn
 	return btn
 
 func _make_op_button(text: String, op_name: String, tooltip: String, icon_name: String = "") -> Button:
@@ -611,6 +641,26 @@ func _on_selection_info_changed(_arg = null) -> void:
 		_op_buttons["merge_objects"].disabled = not has_mesh
 	if _op_buttons.has("mirror_object"):
 		_op_buttons["mirror_object"].disabled = not has_mesh
+	if _btn_mirror_apply != null:
+		var can_apply: bool = false
+		if has_mesh and editor.active_mesh.mb_mesh_data != null:
+			can_apply = editor.active_mesh.mb_mesh_data.mirror_enabled
+			if not can_apply:
+				for f in editor.active_mesh.mb_mesh_data.faces:
+					if f != null and f.mirror_copy:
+						can_apply = true
+						break
+		_btn_mirror_apply.disabled = not can_apply
+	if _btn_mirror_model != null:
+		_btn_mirror_model.disabled = not has_mesh
+		var mirrored: bool = has_mesh and editor.active_mesh.mb_mesh_data != null \
+			and editor.active_mesh.mb_mesh_data.mirror_enabled
+		_btn_mirror_model.set_pressed_no_signal(mirrored)
+		var axis_name: String = "X"
+		if has_mesh and editor.active_mesh.mb_mesh_data != null:
+			axis_name = ["X", "Y", "Z"][clampi(editor.active_mesh.mb_mesh_data.mirror_axis, 0, 2)]
+		_btn_mirror_model.tooltip_text = "Mirror Model (%s): %s — Shift+click switches axis" % [
+			axis_name, "on" if mirrored else "off"]
 	if _op_buttons.has("center_pivot"):
 		_op_buttons["center_pivot"].disabled = not has_mesh
 	if _op_buttons.has("freeze_transform"):

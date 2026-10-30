@@ -24,6 +24,10 @@ extends Resource
 ## Whether UVs are manually authored (true) or auto-projected (false).
 @export var manual_uv: bool = false
 
+## This face came from "Apply Mirror": applying again deletes it and bakes a
+## fresh reflection of the half you edited.
+@export var mirror_copy: bool = false
+
 ## Texture group for auto UV continuous tiling (-1 = none).
 @export var texture_group: int = -1
 
@@ -95,6 +99,7 @@ func copy_from(other: MBFace) -> void:
 	smoothing_group = other.smoothing_group
 	submesh_index = other.submesh_index
 	manual_uv = other.manual_uv
+	mirror_copy = other.mirror_copy
 	texture_group = other.texture_group
 	element_group = other.element_group
 

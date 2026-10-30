@@ -100,6 +100,8 @@ static func _copy_mesh_data(source: MBMeshData, cold: bool) -> MBMeshData:
 	copy.shape_edited = source.shape_edited
 	copy.texture_anchor = source.texture_anchor
 	copy.has_texture_anchor = source.has_texture_anchor
+	copy.mirror_enabled = source.mirror_enabled
+	copy.mirror_axis = source.mirror_axis
 	copy.invalidate_caches()
 	return copy
 
@@ -146,5 +148,7 @@ static func restore_mesh_data(target: MBMeshData, snapshot: MBMeshData) -> void:
 	target.shape_edited = snapshot.shape_edited
 	target.texture_anchor = snapshot.texture_anchor
 	target.has_texture_anchor = snapshot.has_texture_anchor
+	target.mirror_enabled = snapshot.mirror_enabled
+	target.mirror_axis = snapshot.mirror_axis
 
 	target.invalidate_caches()

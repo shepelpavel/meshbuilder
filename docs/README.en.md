@@ -94,7 +94,13 @@ beveled at all.
 
 ## Object operations and CSG
 
-- **Merge Objects** welds selected `MBMesh` nodes, **Mirror** mirrors across X, **Center Pivot** moves the
+- **Mirror Model** — a live mirror (Blender's Mirror modifier): model one half and the render builds the
+  reflection across the object's origin; the stored geometry never changes, the reflected half is display
+  only. Click toggles it, **Shift+click** switches the axis X / Y / Z. One undo step.
+- **Apply Mirror** — bakes the reflection into real geometry: the half stays editable and the copy becomes
+  ordinary faces (the modifier switches off). Every press re-bakes — the previous reflection is deleted
+  and rebuilt from the current half, so copies never stack.
+- **Merge Objects** welds selected `MBMesh` nodes, **Mirror** bakes a mirrored copy of the geometry across X, **Center Pivot** moves the
   pivot to the centre, **Freeze Transform** bakes the transform into the geometry.
 - **MeshBuilderize** converts a `MeshInstance3D` or a `CSG` node into an editable `MBMesh`.
 - **CSG Union / Subtract / Intersect** run Godot's CSG kernel on the selection: select two `MBMesh`

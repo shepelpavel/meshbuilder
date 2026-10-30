@@ -48,6 +48,26 @@ extends Resource
 ## Materials associated with submesh slots (index matches submesh_index on faces).
 @export var materials: Array[Material] = []
 
+## Mirror mode (Blender's Mirror modifier): the stored geometry is the half you
+## edit, the render gets its reflection across the object's origin on
+## `mirror_axis` (0 = X, 1 = Y, 2 = Z). The mirrored side is display only —
+## it is built at compile time, never stored as faces.
+@export var mirror_enabled: bool = false:
+	set(value):
+		if mirror_enabled == value:
+			return
+		mirror_enabled = value
+		invalidate_caches()
+		emit_changed()
+@export var mirror_axis: int = 0:
+	set(value):
+		var clamped: int = clampi(value, 0, 2)
+		if mirror_axis == clamped:
+			return
+		mirror_axis = clamped
+		invalidate_caches()
+		emit_changed()
+
 ## Persistent object-space texture anchor point. Set at shape creation to the
 ## initial bounding box minimum corner so texture tiling never slides relative
 ## to the object when faces are moved or resized.
@@ -603,6 +623,63 @@ func to_array_meshes(use_cached_indices: bool = false, existing: ArrayMesh = nul
 	var custom0 := PackedFloat32Array()
 
 
+	var src_vc: int = positions.size()
+	var mirror_on: bool = mirror_enabled and src_vc > 0
+	var out_positions := positions
+	var out_normals := normals
+	var out_uv1 := textures0
+	var out_uv2 := textures1
+	var out_colors := colors
+	var out_tangents := tangents
+	if mirror_on:
+		var total: int = src_vc * 2
+		out_positions = PackedVector3Array()
+		out_positions.resize(total)
+		out_normals = PackedVector3Array()
+		out_normals.resize(total)
+		for i in src_vc:
+			out_positions[i] = positions[i]
+			out_positions[src_vc + i] = _mirror_point(positions[i])
+			out_normals[i] = normals[i]
+			out_normals[src_vc + i] = _mirror_direction(normals[i])
+		if textures0.size() == src_vc:
+			out_uv1 = PackedVector2Array()
+			out_uv1.resize(total)
+			for i in src_vc:
+				out_uv1[i] = textures0[i]
+				out_uv1[src_vc + i] = textures0[i]
+		if textures1.size() == src_vc:
+			out_uv2 = PackedVector2Array()
+			out_uv2.resize(total)
+			for i in src_vc:
+				out_uv2[i] = textures1[i]
+				out_uv2[src_vc + i] = textures1[i]
+		if colors.size() == src_vc:
+			out_colors = PackedColorArray()
+			out_colors.resize(total)
+			for i in src_vc:
+				out_colors[i] = colors[i]
+				out_colors[src_vc + i] = colors[i]
+		if tangents.size() == src_vc * 4:
+			out_tangents = PackedFloat32Array()
+			out_tangents.resize(total * 4)
+			for i in src_vc:
+				for k in 4:
+					out_tangents[i * 4 + k] = tangents[i * 4 + k]
+				var dir := Vector3(tangents[i * 4], tangents[i * 4 + 1], tangents[i * 4 + 2])
+				var mdir := _mirror_direction(dir)
+				out_tangents[(src_vc + i) * 4] = mdir.x
+				out_tangents[(src_vc + i) * 4 + 1] = mdir.y
+				out_tangents[(src_vc + i) * 4 + 2] = mdir.z
+				# A reflection flips handedness, so the bitangent sign flips too.
+				out_tangents[(src_vc + i) * 4 + 3] = -tangents[i * 4 + 3]
+
+	var vc: int = out_positions.size()
+	var has_uv1: bool = not out_uv1.is_empty() and out_uv1.size() == vc
+	var has_uv2: bool = not out_uv2.is_empty() and out_uv2.size() == vc
+	var has_colors: bool = not out_colors.is_empty() and out_colors.size() == vc
+	var has_tangents: bool = not out_tangents.is_empty() and out_tangents.size() == vc * 4
+
 	if not use_cached_indices or _submesh_indices_cache.is_empty():
 		# Group faces by submesh_index and compile triangle index buffers
 		var submesh_faces: Dictionary = {}
@@ -619,7 +696,9 @@ func to_array_meshes(use_cached_indices: bool = false, existing: ArrayMesh = nul
 
 		submesh_indices.sort()
 		_submesh_keys_cache = submesh_indices
-		var compact := submesh_indices.size() >= COMPACT_SURFACES_FROM
+		# Mirror keeps the plain path: the compacted surface map names source
+		# vertices, and the reflection lives past the source array.
+		var compact := submesh_indices.size() >= COMPACT_SURFACES_FROM and not mirror_on
 
 		for s_idx in submesh_indices:
 			var group_faces: Array = submesh_faces[s_idx]
@@ -633,6 +712,15 @@ func to_array_meshes(use_cached_indices: bool = false, existing: ArrayMesh = nul
 						indices.append(fi[tri_i + 2])
 						indices.append(fi[tri_i + 1])
 						indices.append(fi[tri_i])
+			# Reflection: same triangles on vertices past the source block, with
+			# the winding swapped back (a reflection inverts the facing).
+			if mirror_on:
+				var mirrored := PackedInt32Array()
+				for tri_i in range(0, indices.size() - 2, 3):
+					mirrored.append(indices[tri_i] + src_vc)
+					mirrored.append(indices[tri_i + 2] + src_vc)
+					mirrored.append(indices[tri_i + 1] + src_vc)
+				indices.append_array(mirrored)
 			# Compacted surfaces index their own vertex list: `map` holds the
 			# source vertex for each local one (empty = the whole arrays).
 			var map := PackedInt32Array()
@@ -646,11 +734,6 @@ func to_array_meshes(use_cached_indices: bool = false, existing: ArrayMesh = nul
 					indices[k] = local_of[src]
 			_submesh_indices_cache[s_idx] = {"indices": indices, "map": map}
 
-	var vc: int = positions.size()
-	var has_uv1: bool = not textures0.is_empty() and textures0.size() == vc
-	var has_uv2: bool = not textures1.is_empty() and textures1.size() == vc
-	var has_colors: bool = not colors.is_empty() and colors.size() == vc
-	var has_tangents: bool = not tangents.is_empty() and tangents.size() == vc * 4
 	# A custom vertex channel must declare its own format through the
 	# surface flags; RG_FLOAT = two full floats per vertex (the mask UV).
 	var surface_flags: int = (Mesh.ARRAY_CUSTOM_RG_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT) \
@@ -665,18 +748,18 @@ func to_array_meshes(use_cached_indices: bool = false, existing: ArrayMesh = nul
 		var arrays: Array = []
 		arrays.resize(Mesh.ARRAY_MAX)
 		if map.is_empty():
-			arrays[Mesh.ARRAY_VERTEX] = positions
-			arrays[Mesh.ARRAY_NORMAL] = normals
+			arrays[Mesh.ARRAY_VERTEX] = out_positions
+			arrays[Mesh.ARRAY_NORMAL] = out_normals
 			if has_uv1:
-				arrays[Mesh.ARRAY_TEX_UV] = textures0
+				arrays[Mesh.ARRAY_TEX_UV] = out_uv1
 			if has_uv2:
-				arrays[Mesh.ARRAY_TEX_UV2] = textures1
+				arrays[Mesh.ARRAY_TEX_UV2] = out_uv2
 			if use_custom0:
 				arrays[Mesh.ARRAY_CUSTOM0] = custom0
 			if has_colors:
-				arrays[Mesh.ARRAY_COLOR] = colors
+				arrays[Mesh.ARRAY_COLOR] = out_colors
 			if has_tangents:
-				arrays[Mesh.ARRAY_TANGENT] = tangents
+				arrays[Mesh.ARRAY_TANGENT] = out_tangents
 		else:
 			_fill_compacted_arrays(arrays, map, normals, custom0, use_custom0,
 					has_uv1, has_uv2, has_colors, has_tangents)
@@ -704,6 +787,19 @@ func to_array_meshes(use_cached_indices: bool = false, existing: ArrayMesh = nul
 			chunk.lightmap_size_hint = lightmap_size_hint
 
 	return chunks
+
+## Reflects a point across the object's origin on the mirror axis.
+func _mirror_point(p: Vector3) -> Vector3:
+	match mirror_axis:
+		1:
+			return Vector3(p.x, -p.y, p.z)
+		2:
+			return Vector3(p.x, p.y, -p.z)
+	return Vector3(-p.x, p.y, p.z)
+
+## Reflects a DIRECTION (normal, tangent) — same flip, no origin involved.
+func _mirror_direction(d: Vector3) -> Vector3:
+	return _mirror_point(d)
 
 ## How many surfaces the build makes: one per material slot in use.
 func surface_count() -> int:

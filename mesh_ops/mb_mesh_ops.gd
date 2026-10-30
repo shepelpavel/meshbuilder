@@ -176,6 +176,78 @@ static func inset_faces(mesh_data: MBMeshData, face_ids: PackedInt32Array,
 ## Unselected neighbor faces sharing split boundary edges are retriangulated into
 ## n-gons connected to the new midpoint vertices (each face owning its own
 ## duplicate positions, welded via coincident vertex groups).
+## Bakes a mirror modifier into real geometry: every face gets a reflected
+## twin (positions flipped on `axis` about the origin, winding swapped back,
+## UVs/materials copied), so the reflected half becomes ordinary editable
+## geometry. Returns how many faces were added.
+static func bake_mirror(mesh_data: MBMeshData, axis: int) -> Dictionary:
+	if mesh_data == null or mesh_data.faces.is_empty():
+		return _fail("Mirror apply: no mesh data")
+	var axis_i: int = clampi(axis, 0, 2)
+
+	# Re-apply: drop the reflection baked last time, then mirror the half again —
+	# pressing Apply twice in a row must not stack copies.
+	var kept: Array[MBFace] = []
+	var removed: int = 0
+	for face in mesh_data.faces:
+		if face != null and face.mirror_copy:
+			removed += 1
+			continue
+		if face != null:
+			kept.append(face)
+	mesh_data.faces = kept
+	if removed > 0:
+		_rebuild_topology(mesh_data)
+
+	var source_faces: Array[MBFace] = []
+	for face in mesh_data.faces:
+		if face != null:
+			source_faces.append(face)
+	if source_faces.is_empty():
+		return _fail("Mirror apply: no faces to mirror")
+
+	var added: Array[MBFace] = []
+	for face in source_faces:
+		var idxs := face.get_indexes()
+		if idxs.size() < 3:
+			continue
+		var mirrored := PackedInt32Array()
+		mirrored.resize(idxs.size())
+		for i in idxs.size():
+			var src: int = idxs[i]
+			var pos: Vector3 = mesh_data.positions[src]
+			pos[axis_i] = -pos[axis_i]
+			mirrored[i] = _dup_position_at(mesh_data, pos, src)
+
+		# A reflection flips handedness: swap each triangle's last two corners.
+		var tris := PackedInt32Array()
+		tris.resize(mirrored.size())
+		for i in range(0, mirrored.size(), 3):
+			tris[i] = mirrored[i]
+			tris[i + 1] = mirrored[i + 2]
+			tris[i + 2] = mirrored[i + 1]
+
+		var twin := MBFace.new(tris)
+		twin.submesh_index = face.submesh_index
+		twin.manual_uv = face.manual_uv
+		twin.mirror_copy = true
+		MBUv.apply_face_uvs(mesh_data, twin)
+		added.append(twin)
+
+	if added.is_empty():
+		return _fail("Mirror apply: nothing to mirror")
+
+	mesh_data.faces.append_array(added)
+	_rebuild_topology(mesh_data)
+	mesh_data.calculate_normals()
+	mesh_data.shape_edited = true
+
+	var ids := PackedInt32Array()
+	var base: int = mesh_data.faces.size() - added.size()
+	for i in added.size():
+		ids.append(base + i)
+	return {"ok": true, "new_face_ids": ids, "added": added.size(), "removed": removed}
+
 ## Splits selected EDGES at their midpoints: every adjacent face is rebuilt
 ## with the new vertex inserted into its outline (a quad gets a 5-gon), so no
 ## face is left hanging on a half-edge.
