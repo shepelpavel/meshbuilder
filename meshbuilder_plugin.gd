@@ -380,11 +380,44 @@ func _mount_toolbar_in_bottom_panel() -> void:
 	_toolbar_panel = host
 	if not Engine.is_editor_hint():
 		return
+	# A ScrollContainer reports min height 0, so on a clean start (no saved dock
+	# layout) the bottom panel sized itself to the margin alone and the toolbar
+	# came up 4 px tall. Carry the rows' height onto the scroller: the panel can
+	# no longer collapse below the toolbar, while a narrower panel still scrolls.
+	scroller.custom_minimum_size.y = toolbar.get_combined_minimum_size().y
 	_toolbar_bottom_button = add_control_to_bottom_panel(host, "MeshBuilder")
 	if _toolbar_bottom_button != null:
 		_toolbar_bottom_button.tooltip_text = "MeshBuilder: инструменты моделинга"
-	make_bottom_panel_item_visible.call_deferred(host)
+	_reveal_toolbar_panel(host)
 	logger.info("plugin", "Toolbar mounted in the bottom panel")
+
+## Opens the MeshBuilder tab and gives the panel its height.
+##
+## Two things conspire on a clean start (no saved dock layout): the rows report
+## their real size only after a few layout passes, and a ScrollContainer reports
+## min height 0 — so the bottom panel sizes itself to the margins alone and the
+## toolbar comes up ~10 px tall and stays that way. The loop waits for the rows
+## to be measured, carries that height onto the scroller and keeps the tab open
+## until the dock actually hands the panel that height.
+func _reveal_toolbar_panel(host: Control) -> void:
+	var last_need := -1.0
+	var stable := 0
+	for _i in 180:
+		await get_tree().process_frame
+		if not is_instance_valid(host) or not is_instance_valid(toolbar):
+			return
+		make_bottom_panel_item_visible(host)
+		var need: float = toolbar.get_combined_minimum_size().y
+		var sc := host.get_node_or_null("ToolbarScroll") as ScrollContainer
+		if sc != null and need > 1.0 and not is_equal_approx(sc.custom_minimum_size.y, need):
+			sc.custom_minimum_size.y = need
+		if is_equal_approx(need, last_need):
+			stable += 1
+		else:
+			last_need = need
+			stable = 0
+		if stable >= 2 and need > 1.0 and host.size.y >= need:
+			return
 
 ## Finds the Node3DEditor that owns the 3D viewports, by walking the editor's
 ## base control. Returns the first one (the main screen); the tool bridge only
