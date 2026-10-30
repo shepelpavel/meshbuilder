@@ -33,7 +33,8 @@ island selection and snapping — plus a per-face row (tiling, offset, rotation,
 tint).
 
 **Extras.** CSG booleans (union / subtract / intersect), `MeshBuilderize` to turn a `MeshInstance3D`
-or a CSG node into an editable mesh, a snapping grid.
+or a CSG node into an editable mesh, a live mirror modifier with an Apply toggle that bakes it into real
+faces (and bakes it back), snapping to the editor's grid step.
 
 ### Requirements
 
@@ -87,7 +88,8 @@ bridge, connect, tunnel, fill hole, detach, delete. Всё с превью и п
 острова, снап — плюс строка «Face:» для граней (тайлинг, офсет, угол, флипы, тинт вершинным цветом).
 
 **Прочее.** CSG-булевы (union / subtract / intersect), `MeshBuilderize` — превратить `MeshInstance3D`
-или CSG в редактируемый меш, сетка с привязками.
+или CSG в редактируемый меш, живое зеркало с тумблером Apply (запекает отражение в грани и обратно),
+привязка по шагу сетки редактора.
 
 ### Требования
 
@@ -109,9 +111,9 @@ rsync -a --delete \
 
 Включить в `Проект → Настройки проекта → Плагины → MeshBuilder`.
 
-Всё живёт в **нижней панели** отдельными вкладками — «MeshBuilder» (тулбар), «Material & UV»
-(палитра материалов выделенного меша) и «UV Editor» (2D-развёртка и построчная правка UV/тинта): так плагин не отъедает ни строки у
-3D-вьюпорта, ни правую колонку доков.
+Всё живёт в **нижней панели** отдельными вкладками — «MeshBuilder» (тулбар), «Materials» (палитра
+материалов выделенного меша) и «UV Editor» (2D-развёртка и построчная правка UV/тинта): так плагин не
+отъедает ни строки у 3D-вьюпорта, ни правую колонку доков.
 
 ### Экспорта в файл нет
 

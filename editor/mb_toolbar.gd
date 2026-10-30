@@ -140,7 +140,7 @@ func _build_ui() -> void:
 	_btn_space.icon = _load_icon("icon_space.svg")
 	_btn_space.text = "Element"
 	_btn_space.flat = true
-	_btn_space.tooltip_text = "Gizmo orientation space (X to cycle): Element, Object, World"
+	_btn_space.tooltip_text = "Gizmo orientation space (Shift+X to cycle): Element, Object, World"
 	_btn_space.pressed.connect(_on_space_button_pressed)
 
 

@@ -30,20 +30,24 @@ The toolbar is three rows of icon groups (groups are separated by vertical lines
 
 | Row | Contents |
 |---|---|
-| 1 | modes (Object / Vertex / Edge / Face / Texture), Move / Rotate / Scale, gizmo Space, selection operations, Auto Smooth |
-| 2 | V-Snap, Soft (proportional editing) and its radius, Lit / Shadow / X-Ray, mesh operations (Extrude, Inset, Bevel, Subdiv, Merge, Del, Knife, Loop Cut, Connect, Bridge, Tunnel, Fill Hole, Weld, Detach) |
+| 1 | modes (Object / Vertex / Edge / Face / Texture), Move / Rotate / Scale, gizmo Space, selection operations (All, Invert, Grow, Shrink, Coplanar, Similar, Boundary, Loop, Ring), Auto Smooth |
+| 2 | **Snap**, **V-Snap**, **Soft** with its radius, Lit / Shadow / X-Ray, mesh operations (Extrude, Inset, Bevel, Subdiv, Merge, Del, Knife, Loop Cut, Connect, Bridge, Tunnel, Fill Hole, Weld, Detach) |
+| 3 | **New Shape**, object operations (Merge Objects, Mirror, Mirror Model, Apply Mirror, Center Pivot, Freeze Transform, MeshBuilderize), **Merge by Dist**, CSG (Union / Subtract / Intersect), tabs and view (Materials, UV, Overlay, Reset Panel, Settings) |
 
 Panels are separate bottom tabs: the toolbar opens on start, `Materials` and `UV Editor` are opened from
-the third row.
+the third row. **Overlay** shows or hides the viewport overlay panel, **Reset Panel** brings it back if it
+drifted off-screen, **Settings** opens wireframe / selection / hover opacity.
 
 ## Creating geometry
 
 **13 primitives:** cube, stair, curved stair, prism, cylinder, plane, door, pipe, cone, arch, sphere,
+torus, n-gon.
 
-- **New Shape** → pick a shape → drag the base on any surface → move the mouse to set the height →
-  click to confirm. `Ctrl` locks the direction, `Esc` cancels.
-- Size-only shapes (cube, prism, plane) commit on release; the rest open a parameter modal.
-
+- **New Shape** → pick a shape → drag the base on any surface (or on the editor grid) → move the mouse to
+  set the height → click to confirm. `Ctrl` locks the direction, `Esc` cancels.
+- A size-only shape (cube, prism, plane, cylinder, cone, sphere) is created right away. Shapes with
+  parameters of their own (stair steps, door opening, arch arc, n-gon sides, sphere rings, torus) open the
+  params modal: Apply keeps the values, Cancel restores the previous ones.
 - N-Gon is drawn point by point.
 - Surface-aligned sheets (plane) are lifted off the surface by the normal offset.
 
@@ -71,7 +75,7 @@ keys go to the editor.
 | Bevel | `B` | chamfers edges, faces or vertices (Distance + Segments modal) |
 | Subdivide | `D` | face mode — cut a quad into 4; edge mode — split the selected edges at their midpoints (the faces around them become n-gons) |
 | Loop Cut | `Ctrl+R` | inserts an edge loop through a quad ring |
-| Knife | `K` | cuts a face along clicked points; it arms from object mode too (the first click picks the face, pressing `K` again cancels), `Enter` completes the cut; a closed loop inside a face cuts a hole. The magnet scales with the face (14 % for corners, 20 % for edges) so it grips the same on a 0.2 m prop and a 20 m wall; holding **Alt** turns it off so the point sits exactly under the cursor. An open cut extends itself to the face border — click two points inside the face and the cut still runs edge to edge. A stroke that runs across several visible faces cuts **all** of them in one go, so a wall built from separate quads is cut by a single line (it does not cut through the solid — the back wall stays, and a seam keeps a single vertex) |
+| Knife | `K` | cuts a face along clicked points; it arms from object mode too (the first click picks the face, pressing `K` again cancels), `Enter` completes the cut; a closed loop inside a face cuts a hole. The magnet is a fraction of the target face's size — 14 % of its longest side for corners, 20 % for edges (clamped to 4 mm…1 m and 6 mm…1.5 m) — so it grips the same on a 0.2 m prop and a 20 m wall; holding **Alt** turns it off so the point sits exactly under the cursor. An open cut extends itself to the face border — click two points inside the face and the cut still runs edge to edge. A stroke that runs across several visible faces cuts **all** of them in one go, so a wall built from separate quads is cut by a single line (it does not cut through the solid — the back wall stays, and a seam keeps a single vertex) |
 | Merge Faces | button | merges selected faces into one |
 | Merge (Weld) | `M` | merges selected vertices into their centroid |
 | **Merge by Dist** | button | merges every vertex closer than 1 mm across the whole mesh (Blender's Merge by Distance) |
@@ -96,14 +100,16 @@ beveled at all.
 
 - **Mirror Model** — a live mirror (Blender's Mirror modifier): model one half and the render builds the
   reflection across the object's origin; the stored geometry never changes, the reflected half is display
-  only. Click toggles it, **Shift+click** switches the axis X / Y / Z. One undo step.
+  only. Click toggles it, **Shift+click** switches the axis X / Y / Z. One undo step. The setting lives in
+  the mesh data (on/off + axis) and is saved with the scene; it never touches the faces.
 - **Apply Mirror** is a toggle: press to bake the reflection into real faces (the half stays editable and
   the modifier switches off), press again to delete the baked faces and hand the half back to the live
   modifier. Re-baking always rebuilds the copy from the current half, so copies never stack. The copy
   inherits everything from the source face: contour shape (a quad stays a quad), UVs, tiling
   rotation/scale, smoothing group and material.
-- **Merge Objects** welds selected `MBMesh` nodes, **Mirror** bakes a mirrored copy of the geometry across X, **Center Pivot** moves the
-  pivot to the centre, **Freeze Transform** bakes the transform into the geometry.
+- **Merge Objects** welds selected `MBMesh` nodes; **Mirror** bakes a mirrored copy across X in one shot (no
+  live mirror involved); **Center Pivot** moves the pivot to the centre; **Freeze Transform** bakes the
+  transform into the geometry.
 - **MeshBuilderize** converts a `MeshInstance3D` or a `CSG` node into an editable `MBMesh`.
 - **CSG Union / Subtract / Intersect** run Godot's CSG kernel on the selection: select two `MBMesh`
   nodes (first — target, second — cutter) **in object mode** (`4`) and hit the button. The result stays on
@@ -134,7 +140,8 @@ after that each mesh carries its own set.
 ## UV editor
 
 The `UV Editor` tab has **UV1** (texture) and **UV2** (lightmap) channels, Auto/Manual modes,
-Move/Rotate/Scale tools (`W` / `E` / `R`; `F` frames the selection) and snapping to the Godot grid.
+Move/Rotate/Scale tools (`W` / `E` / `R`; `F` frames the selection) and snapping to a UV grid with its own
+step (1/32 … 1, 1/8 by default).
 
 - Projections: **Planar**, **Box**, **Fit** into [0,1], **Unwrap** into a clean non-overlapping layout,
   **Lightmap** — a UV2 atlas unwrap for `LightmapGI`.
@@ -148,8 +155,9 @@ Move/Rotate/Scale tools (`W` / `E` / `R`; `F` frames the selection) and snapping
 ## Grid and snapping
 
 Snapping follows the **Godot grid**: the step comes from the editor's Snap Settings dialog (1 m cell when
-that is unavailable). The plugin no longer draws a grid of its own — you see the editor's grid. `Y` or the toolbar **Snap** button toggles it.
-applies to new shapes and to dragging elements alike.
+that is unavailable). The plugin draws no grid of its own — you see the editor's grid. `Y` or the toolbar
+**Snap** button toggles snapping; it applies to new shapes and to dragging elements alike. **V-Snap** is a
+separate magnet to the nearest mesh vertex while dragging, **Soft** is proportional editing with a radius.
 
 ## Keyboard reference
 
@@ -157,7 +165,7 @@ applies to new shapes and to dragging elements alike.
 |---|---|
 | `1` `2` `3` `6` | vertex / edge / face / texture mode |
 | `4` | object mode (multi-select; CSG and Merge Objects work from here) |
-| `H` `J` | the same modes (alternative) |
+| `H` `J` | vertex / edge mode (alternative to `1` and `2`) |
 | `K` | knife tool (press again to cancel) |
 | `G` `R` `S` | Move / Rotate / Scale |
 | `Shift+X` | cycle gizmo space |
