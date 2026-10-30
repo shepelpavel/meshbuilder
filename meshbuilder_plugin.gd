@@ -507,6 +507,13 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 				logger.info("plugin", "Params modal cancelled (viewport press)")
 			_on_params_canceled()
 			return AFTER_GUI_INPUT_PASS
+	# Godot's fly mode (RMB + WASD) and MMB pan feed their keys through the same
+	# viewport input, so every plugin shortcut fired mid-flight (WASD itself hit
+	# nothing, but K/D/X/1-4 and Ctrl+R pulled the camera out of navigation).
+	# While a navigation button is held, keys belong to the editor.
+	if event is InputEventKey and _is_navigating_view():
+		return AFTER_GUI_INPUT_PASS
+
 	# Everything key-driven funnels through the rebindable action table BEFORE
 	# the editing gate: grid keys work with nothing selected (the grid must be
 	# adjustable before use), while action-internal context gates keep unbound
@@ -516,6 +523,10 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 		if k.keycode == KEY_V and not k.ctrl_pressed and not k.alt_pressed and not k.meta_pressed:
 			gizmo_plugin.element_editor.vertex_snap_held = k.pressed
 		if k.pressed:
+			if ngon_drawer.mode == MBNgonDrawer.Mode.KNIFE and ngon_drawer.is_active() \
+					and (k.keycode == KEY_ENTER or k.keycode == KEY_KP_ENTER) \
+					and ngon_drawer.state != MBNgonDrawer.State.DRAWING:
+				_op_hint("Knife: click two points on the mesh first (Esc cancels)")
 			return _handle_action_key(k)
 
 	if not editor.is_editing():
@@ -552,7 +563,33 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 ## Maps a viewport keypress to a rebindable MeshBuilder action. Actions with
 ## an editing context consume the event (STOP); everything else PASSES so
 ## the engine's own shortcuts keep working untouched.
+## Vertex weld tolerance for a knife cut, scaled to the mesh: a body panel gets
+## a couple of millimetres, a 2 cm prop a fraction of one.
+func _knife_weld_tolerance(md: MBMeshData) -> float:
+	if md == null or md.positions.size() < 2:
+		return 0.0015
+	var mn: Vector3 = md.positions[0]
+	var mx: Vector3 = md.positions[0]
+	for p in md.positions:
+		mn = Vector3(minf(mn.x, p.x), minf(mn.y, p.y), minf(mn.z, p.z))
+		mx = Vector3(maxf(mx.x, p.x), maxf(mx.y, p.y), maxf(mx.z, p.z))
+	return clampf(mn.distance_to(mx) * 0.004, 0.0015, 0.02)
+
+## True while the editor is navigating the 3D view (RMB fly mode, MMB pan).
+## Plugin shortcuts are ignored then — otherwise pressing W/A/S/D plus a tool
+## key mid-flight triggers a mesh op instead of flying.
+## `test_navigating` exists because headless tests cannot press a mouse button.
+var test_navigating: bool = false
+
+func _is_navigating_view() -> bool:
+	if test_navigating:
+		return true
+	return Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) \
+		or Input.is_mouse_button_pressed(MOUSE_BUTTON_MIDDLE)
+
 func _handle_action_key(key_event: InputEventKey) -> int:
+	if _is_navigating_view():
+		return AFTER_GUI_INPUT_PASS
 	var grid_result := _handle_grid_action_key(key_event)
 	if grid_result == AFTER_GUI_INPUT_STOP:
 		return AFTER_GUI_INPUT_STOP
@@ -3188,6 +3225,10 @@ func _start_ngon_shape_tool() -> void:
 		logger.info("plugin", "N-Gon Extrude active — click a surface to draw polygon")
 func _ngon_drawer_input(camera: Camera3D, event: InputEvent) -> int:
 	_ngon_snap_camera = camera
+	if camera != null:
+		# The stroke is drawn in screen space: crossed faces are projected along
+		# this direction, so a wall that bends between quads still gets cut.
+		ngon_drawer.view_dir = -camera.global_transform.basis.z
 	if event is InputEventMouseMotion:
 		_last_mouse_pos = event.position
 		_last_mouse_camera = camera
@@ -3266,6 +3307,16 @@ func _ngon_drawer_input(camera: Camera3D, event: InputEvent) -> int:
 							ngon_drawer.start_drag_vert(ngon_drawer.hovered_vert_idx)
 							return AFTER_GUI_INPUT_STOP
 					else:
+						# Re-snap at click time: the stored point must be exactly
+						# what the marker showed, so a GREEN marker (corner) can
+						# never turn into an edge point because the last motion
+						# event is a frame older than the click.
+						var ray_o2: Vector3 = camera.project_ray_origin(event.position)
+						var ray_d2: Vector3 = camera.project_ray_normal(event.position)
+						var hit2 := MBNgonDrawer.ray_plane_intersect(ray_o2, ray_d2,
+							ngon_drawer.plane_point, ngon_drawer.plane_normal)
+						if hit2 != MBNgonDrawer.RAY_MISS:
+							ngon_drawer.update_cursor_plane(hit2)
 						ngon_drawer.add_point(ngon_drawer.live_cursor_point)
 						if ngon_drawer.preview_node != null:
 							ngon_drawer.preview_node.update_gizmos()
@@ -3286,6 +3337,12 @@ func _ngon_drawer_input(camera: Camera3D, event: InputEvent) -> int:
 					ngon_drawer.target_mesh.update_gizmos()
 				return AFTER_GUI_INPUT_STOP
 
+	if event is InputEventKey:
+		var k_mod := event as InputEventKey
+		if k_mod.keycode == KEY_ALT:
+			ngon_drawer.snap_disabled = k_mod.pressed
+			if ngon_drawer.target_mesh != null:
+				ngon_drawer.target_mesh.update_gizmos()
 	if event is InputEventKey and event.pressed:
 		var k := event as InputEventKey
 		if k.keycode == KEY_ENTER or k.keycode == KEY_KP_ENTER:
@@ -3320,7 +3377,9 @@ func _ngon_snap_px_to_world(camera: Camera3D, at: Vector3, px: float) -> float:
 func _update_ngon_snap_radii() -> void:
 	if ngon_drawer == null:
 		return
-	ngon_drawer.snap_disabled = false
+	# Alt held = magnet off (aim freely). Read from the live keyboard state on
+	# every motion/click so releasing Alt brings the magnet straight back.
+	ngon_drawer.snap_disabled = Input.is_key_pressed(KEY_ALT)
 	# Radii are face-relative inside the drawer (auto_radii). Assigning them from
 	# screen pixels here overwrote that with a one-frame-stale depth and could
 	# collapse the magnet to a millimetre.
@@ -3466,7 +3525,19 @@ func _on_ngon_drawer_complete() -> void:
 			var xf_cut: Transform3D = target_m.global_transform
 			for p in ngon_drawer.points:
 				cut_points_world.append(xf_cut.affine_inverse() * p)
+		var pos_before_cut: int = target_m.mb_mesh_data.positions.size()
 		var res := ngon_drawer.complete()
+		if res.get("ok", false) and target_m.mb_mesh_data.positions.size() > pos_before_cut:
+			# Belt and braces: a vertex the cut created a hair away from an
+			# existing one (a corner the green marker pointed at, a seam point)
+			# is snapped onto it, so the result reuses the corner instead of
+			# adding a second vertex next to it.
+			var welded_new: int = MBMeshOps.weld_recent_positions(target_m.mb_mesh_data,
+				pos_before_cut, _knife_weld_tolerance(target_m.mb_mesh_data))
+			if welded_new > 0:
+				target_m.mb_mesh_data.calculate_normals()
+				if logger:
+					logger.info("mesh_ops", "Knife: snapped %d new vertex/vertices onto existing ones" % welded_new)
 		if res.get("ok", false):
 			# A torn cut leaves a vertex sitting inside another face's edge.
 			# Counting border edges (the old check) was wrong on open walls: a
@@ -3489,10 +3560,12 @@ func _on_ngon_drawer_complete() -> void:
 		if not res.get("ok", false):
 			if logger:
 				logger.warn("mesh_ops", "Knife cut failed: %s" % res.get("error", "?"))
+			# Never silent: a refused cut must say why, otherwise Enter looks dead.
 			_set_creation_hint("Knife cut failed: %s" % res.get("error", "?"))
+			_op_hint("Knife: %s" % res.get("error", "cut failed"))
 			return
 
-		if not twins.is_empty() and cut_points_world.size() >= 2:
+		if not twins.is_empty() and cut_points_world.size() >= 2 and ngon_drawer.last_cut_closed:
 			# Descending order: cutting a face re-indexes the array.
 			twins.sort()
 			twins.reverse()

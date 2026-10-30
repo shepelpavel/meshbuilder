@@ -38,6 +38,11 @@ var snap_disabled: bool = false
 var auto_radii: bool = true
 ## What the last snap grabbed: 0 = nothing, 1 = a corner, 2 = an edge.
 var last_snap_kind: int = 0
+## Was the last committed knife cut a closed loop (a hole) rather than a stroke?
+var last_cut_closed: bool = false
+## World-space view direction of the cut (screen-space stroke projected onto
+## every crossed face's plane along it).
+var view_dir: Vector3 = Vector3.ZERO
 
 var mode: Mode = Mode.NONE
 var state: State = State.INACTIVE
@@ -229,7 +234,25 @@ func _complete_knife() -> Dictionary:
 	if local_points.size() >= 3 and local_points[0].distance_to(local_points[local_points.size() - 1]) < 0.001:
 		is_closed = true
 
-	var res := MBMeshOps.cut_face(target_mesh.mb_mesh_data, target_face_index, local_points, is_closed)
+	last_cut_closed = is_closed
+	# An open stroke belongs to every face it crosses (a wall of several quads is
+	# cut through by one line); only a closed loop is a single-face hole.
+	var res: Dictionary
+	if is_closed:
+		res = MBMeshOps.cut_face(target_mesh.mb_mesh_data, target_face_index, local_points, true)
+	else:
+		var local_dir: Vector3 = inv_xf.basis * view_dir
+		res = MBMeshOps.cut_along_path(target_mesh.mb_mesh_data, local_points, local_dir)
+	if not res.get("ok", false) and not is_closed and local_points.size() > 2:
+		# A wiggly path can fail to clip on every face while the straight span
+		# between its ends does cut: retry with the span alone.
+		res = MBMeshOps.cut_along_path(target_mesh.mb_mesh_data,
+			PackedVector3Array([local_points[0], local_points[local_points.size() - 1]]),
+			(inv_xf.basis * view_dir))
+	if not res.get("ok", false) and not is_closed:
+		# Fallback: the stroke may not cross any face along the view direction
+		# (degenerate projection) — cut the face the knife started on.
+		res = MBMeshOps.cut_face(target_mesh.mb_mesh_data, target_face_index, local_points, false)
 	if res.get("ok", false):
 		state = State.INACTIVE
 	return res
@@ -511,7 +534,14 @@ func snap_point_world(p: Vector3) -> Vector3:
 			var corner_best := INF
 			var corner_pt := Vector3.ZERO
 			var corner_hit := false
-			for idx in _mesh_corner_positions(md):
+			# The knife may only aim at corners of the face being cut. CSG-converted
+			# meshes keep a private copy of every vertex per face, and a neighbouring
+			# face's copy of the "same" corner can sit centimetres away — snapping
+			# to it made the cut end on an edge next to the real corner.
+			var corner_ids := _mesh_corner_positions(md)
+			if mode == Mode.KNIFE and target_face_index >= 0 and target_face_index < md.faces.size():
+				corner_ids = md.faces[target_face_index].get_distinct_indexes()
+			for idx in corner_ids:
 				var corner: Vector3 = xf * md.positions[idx]
 				var dc: float = p.distance_to(corner)
 				if dc <= snap_vert_radius and dc < corner_best:

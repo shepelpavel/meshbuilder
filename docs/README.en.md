@@ -53,6 +53,8 @@ torus, n-gon — plus **Trim Walls** for skirting and mouldings along walls.
 
 `1` / `2` / `3` switch vertex / edge / face mode (`4` — object, `6` — texture); `H` / `J` are the same modes
 without leaving the left hand on the number row (`K` is the knife). Switching modes converts the selection.
+While the camera is flying (RMB or the wheel held) the plugin's shortcuts stay out of the way and the
+keys go to the editor.
 
 - click selects one element, rubber band selects a group, `Shift` adds, `Ctrl` removes;
 - **edges:** `Alt+click` or double-click selects the edge loop, `Shift+Alt+click` the edge ring;
@@ -71,7 +73,7 @@ without leaving the left hand on the number row (`K` is the knife). Switching mo
 | Bevel | `B` | chamfers edges, faces or vertices (Distance + Segments modal) |
 | Subdivide | `D` | face mode — cut a quad into 4; edge mode — split the selected edges at their midpoints (the faces around them become n-gons) |
 | Loop Cut | `Ctrl+R` | inserts an edge loop through a quad ring |
-| Knife | `K` | cuts a face along clicked points; it arms from object mode too (the first click picks the face, pressing `K` again cancels), `Enter` completes the cut; a closed loop inside a face cuts a hole. The magnet scales with the face (14 % for corners, 20 % for edges) so it grips the same on a 0.2 m prop and a 20 m wall. An open cut extends itself to the face border — click two points inside the face and the cut still runs edge to edge |
+| Knife | `K` | cuts a face along clicked points; it arms from object mode too (the first click picks the face, pressing `K` again cancels), `Enter` completes the cut; a closed loop inside a face cuts a hole. The magnet scales with the face (14 % for corners, 20 % for edges) so it grips the same on a 0.2 m prop and a 20 m wall; holding **Alt** turns it off so the point sits exactly under the cursor. An open cut extends itself to the face border — click two points inside the face and the cut still runs edge to edge. A stroke that runs across several visible faces cuts **all** of them in one go, so a wall built from separate quads is cut by a single line (it does not cut through the solid — the back wall stays, and a seam keeps a single vertex) |
 | Merge Faces | button | merges selected faces into one |
 | Merge (Weld) | `M` | merges selected vertices into their centroid |
 | **Merge by Dist** | button | merges every vertex closer than 1 mm across the whole mesh (Blender's Merge by Distance) |
