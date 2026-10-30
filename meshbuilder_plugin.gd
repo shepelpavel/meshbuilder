@@ -146,7 +146,6 @@ func _enter_tree():
 	toolbar.set_editing_active(false)
 	toolbar.shape_requested.connect(_on_shape_requested)
 	toolbar.operation_requested.connect(_on_operation_requested)
-	toolbar.edit_params_requested.connect(_on_edit_params_requested)
 	toolbar.trim_walls_requested.connect(_on_trim_walls_requested)
 	toolbar.snap_toggled.connect(_on_toolbar_snap_toggled)
 	toolbar.overlay_toggled.connect(_on_overlay_toggled)
@@ -182,7 +181,6 @@ func _enter_tree():
 	tool_overlay.params_applied.connect(_on_params_applied)
 	tool_overlay.params_canceled.connect(_on_params_canceled)
 	tool_overlay.param_changed.connect(_on_param_changed)
-	tool_overlay.edit_params_requested.connect(_on_edit_params_requested)
 	tool_overlay.display_setting_changed.connect(_on_display_setting_changed)
 	tool_overlay.display_reset_pressed.connect(_on_display_reset)
 	_load_display_settings()
@@ -472,7 +470,7 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 		return _creation_input(camera, event)
 
 	# If an Edit Params or Bevel session modal is open, handle its modal lifecycle:
-	if _params_session_kind == "edit" or _params_session_kind == "bevel":
+	if _params_session_kind == "bevel":
 		if event is InputEventKey and event.pressed:
 			var k := event as InputEventKey
 			if k.keycode == KEY_ESCAPE:
@@ -824,8 +822,6 @@ func _on_selection_changed() -> void:
 		if _params_session_kind == "create" and mb_mesh == shape_creator.preview_node:
 			pass
 		elif _params_session_kind == "bevel" and mb_mesh == _bevel_session_node:
-			pass
-		elif _params_session_kind == "edit" and mb_mesh == _params_edit_node:
 			pass
 		elif _params_session_kind == "trim_walls":
 			# A wall-picking session survives selection changes: stray clicks
@@ -2339,11 +2335,9 @@ func _perform_auto_smooth() -> void:
 # ==============================================================================
 
 
-## What the overlay params modal is editing: "create" (a just-placed shape)
-## or "edit" (Edit Params on a pristine factory shape).
+## What the overlay params modal is editing: "create" (a just-placed shape),
+## "trim_walls" or "bevel".
 var _params_session_kind: String = ""
-var _params_edit_node: MBMesh = null
-var _params_edit_snapshot: MBMeshData = null
 var _bevel_session_node: MBMesh = null
 var _bevel_session_snapshot: MBMeshData = null
 var _bevel_session_mode: MBEditor.SelectMode = MBEditor.SelectMode.OBJECT
@@ -2353,12 +2347,10 @@ var _bevel_session_vertices: PackedInt32Array = PackedInt32Array()
 var _bevel_session_faces: PackedInt32Array = PackedInt32Array()
 var _bevel_session_edges: Array[MBEdge] = []
 var _bevel_session_last_new_faces: PackedInt32Array = PackedInt32Array()
-var _params_edit_values: Dictionary = {}
 
 ## A New Shape menu pick ARMS creation: nothing exists yet — the next LMB
 ## drag on any surface (MBMesh face or grid plane) draws the base. Any open
-## params session is committed first (a create session in the modal applies;
-## an Edit Params session commits) so the new shape never replaces the node
+## params session is committed first, so the new shape never replaces the node
 ## a still-open dialog was editing.
 func _on_shape_requested(shape_id: StringName) -> void:
 	if _params_session_kind != "" or (tool_overlay != null and tool_overlay.params_open):
@@ -2374,21 +2366,13 @@ func _on_shape_requested(shape_id: StringName) -> void:
 	if shape_id == &"ngon" or shape_id == &"ngon_draw":
 		_start_ngon_shape_tool()
 		return
-	# Arming must never decide snapping: whatever the user's snap state is,
-	# it survives the arm unchanged (a stale apply/restore inside the context
-	# update must not get the last word).
-	var snap_state_before_arm := grid.enabled
 	shape_creator.arm(shape_id)
 	# Trim depth carries across the project: a trim "starts at the last Depth
 	# you set in this project (5 cm before you set one)" — it is never dragged,
 	# so the typed value is the one thing that persists between trims.
 	if shape_id == &"trim":
 		_seed_trim_project_values()
-	# Arming is a MeshBuilder context change too: the engine grid hides and
-	# the elevated MeshBuilder grid shows while drawing (engine-bridge a no-op).
 	_update_editing_context()
-	if grid.enabled != snap_state_before_arm:
-		grid.enabled = snap_state_before_arm
 
 	if MBShapeParams.commits_on_base_release(shape_id):
 		_set_creation_hint("Trim — drag base along wall, release to commit (Esc cancels)")
@@ -3737,22 +3721,7 @@ func _on_param_changed(param_name: String, value: float) -> void:
 		elif param_name == "segments":
 			op_bevel_segments = clampi(int(round(value)), 1, 8)
 		_update_bevel_preview()
-	elif _params_session_kind == "edit" and _params_edit_node != null \
-			and is_instance_valid(_params_edit_node):
-		_params_edit_values[param_name] = value
-		var data := _params_edit_node.mb_mesh_data
-		if data != null and data.shape_id == &"trim" and param_name == "depth":
-			_persist_trim_project_values(_params_edit_values)
-		var old_materials: Array[Material] = data.materials.duplicate() if data != null else []
-		var rebuilt := MBShapeParams.build(data.shape_id, _params_edit_values)
-		if rebuilt != null:
-			rebuilt.shape_id = data.shape_id
-			rebuilt.shape_params = _params_edit_values.duplicate()
-			rebuilt.shape_edited = false
 
-			_params_edit_node.mb_mesh_data = rebuilt
-			_params_edit_node.rebuild()
-			_params_edit_node.update_gizmos()
 
 ## Re-entrancy guard for the params dispatch: committing or cancelling a
 ## session switches select_mode, and the mode-change handler's "apply any
@@ -3775,8 +3744,6 @@ func _on_params_applied() -> void:
 	elif _params_session_kind == "trim_walls":
 		trim_walls_tool.params = tool_overlay.get_param_values()
 		_trim_walls_commit()
-	elif _params_session_kind == "edit":
-		_commit_edit_params()
 	elif _params_session_kind == "bevel":
 		_commit_bevel_session()
 	_params_dispatch_underway = false
@@ -3797,27 +3764,12 @@ func _on_params_canceled() -> void:
 		_finish_creation_session(node)
 		if logger:
 			logger.info("plugin", "Shape parameters reverted to placement values")
-	elif _params_session_kind == "edit":
-		if _params_edit_node != null and is_instance_valid(_params_edit_node) \
-				and _params_edit_snapshot != null:
-			MBCommand.restore_mesh_data(_params_edit_node.mb_mesh_data, _params_edit_snapshot)
-			_params_edit_node.rebuild()
-			_params_edit_node.update_gizmos()
-		_params_session_kind = ""
-		_params_edit_node = null
-		_params_edit_snapshot = null
-		_params_edit_values = {}
-		if logger:
-			logger.info("plugin", "Shape parameters edit cancelled")
 	elif _params_session_kind == "trim_walls":
 		_trim_walls_disarm("cancelled")
 	elif _params_session_kind == "bevel":
 		_cancel_bevel_session()
 	else:
 		_params_session_kind = ""
-		_params_edit_node = null
-		_params_edit_snapshot = null
-		_params_edit_values = {}
 
 	if tool_overlay != null:
 		tool_overlay.close_params()
@@ -3972,51 +3924,6 @@ func _cancel_bevel_session() -> void:
 	if logger:
 		logger.info("plugin", "Bevel cancelled and reverted")
 ## Edit Params on a pristine factory shape: live param rebuilds; Apply
-## commits a snapshot undo, Cancel restores the pre-session data. Ignored
-## while another params session is running.
-func _on_edit_params_requested() -> void:
-	if _params_session_kind != "":
-		return
-	var mesh := editor.active_mesh
-	if mesh == null or mesh.mb_mesh_data == null:
-		return
-	var data: MBMeshData = mesh.mb_mesh_data
-	if data.shape_id == &"" or data.shape_edited:
-		if logger:
-			logger.warn("plugin", "Edit Params needs an unedited factory shape")
-		return
-	_params_session_kind = "edit"
-	_params_edit_node = mesh
-	_params_edit_snapshot = MBCommand.copy_mesh_data(data)
-	_params_edit_values = data.shape_params.duplicate()
-
-	tool_overlay.open_params("%s Parameters" % String(data.shape_id).capitalize(),
-		MBShapeParams.get_param_defs(data.shape_id), _params_edit_values)
-
-func _commit_edit_params() -> void:
-	var node := _params_edit_node
-	if node == null or not is_instance_valid(node) or node.mb_mesh_data == null:
-		return
-	var data := node.mb_mesh_data
-	data.shape_params = _params_edit_values.duplicate()
-	data.shape_edited = false
-
-	var before := _params_edit_snapshot
-	var after := MBCommand.copy_mesh_data(data)
-	var undo := get_undo_redo()
-	undo.create_action("Edit %s Params" % String(data.shape_id).capitalize(),
-		UndoRedo.MERGE_DISABLE, node)
-	undo.add_do_method(self, "_restore_mesh_snapshot", node.get_instance_id(), after)
-	undo.add_undo_method(self, "_restore_mesh_snapshot", node.get_instance_id(), before)
-	undo.commit_action()
-	tool_overlay.close_params()
-	_params_session_kind = ""
-	_params_edit_node = null
-	_params_edit_snapshot = null
-	_params_edit_values = {}
-	if logger:
-		logger.info("plugin", "Shape parameters committed")
-
 func _unique_detached_name(mesh: MBMesh) -> String:
 	var parent := mesh.get_parent()
 	var base := mesh.name + "_Detached"

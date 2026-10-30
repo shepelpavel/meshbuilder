@@ -14,8 +14,8 @@
 ## - Operations: mesh ops acting on the current selection, enabled per
 ##   selection context (greyed out otherwise). The overlay panel does NOT
 ##   carry op buttons.
-## - Shape actions: New Shape menu (always enabled), Edit Params (enabled
-##   while the selected mesh is a pristine, unedited factory shape).
+## - Shape actions: the New Shape menu (always enabled) — it carries every
+##   primitive, N-Gon included.
 ## - Panel toggle: pins the overlay panel on/off (it otherwise auto-hides).
 @tool
 class_name MBToolbar
@@ -42,7 +42,6 @@ signal shape_requested(shape_id: StringName)
 signal operation_requested(op_name: String)
 
 ## Emitted when the user asks to re-edit the selected mesh's shape params.
-signal edit_params_requested
 signal trim_walls_requested
 
 ## Emitted when the user toggles the overlay panel pin.
@@ -94,8 +93,6 @@ var _btn_face: Button
 var _btn_texture: Button
 var _btn_space: Button
 var _btn_new_shape: MenuButton
-var _btn_ngon: Button
-var _btn_edit_params: Button
 var _btn_trim_walls: Button
 var _btn_merge_by_distance: Button
 var _btn_overlay: Button
@@ -164,7 +161,9 @@ func _build_ui() -> void:
 
 	_btn_vertex_snap = Button.new()
 	_btn_vertex_snap.name = "VertexSnapToggle"
-	_btn_vertex_snap.text = "V-Snap"
+	_btn_vertex_snap.icon = _load_icon("icon_vsnap.svg")
+	if _btn_vertex_snap.icon == null:
+		_btn_vertex_snap.text = "V-Snap"
 	_btn_vertex_snap.flat = true
 	_btn_vertex_snap.toggle_mode = true
 	_btn_vertex_snap.focus_mode = Control.FOCUS_NONE
@@ -173,7 +172,9 @@ func _build_ui() -> void:
 
 	_btn_proportional = Button.new()
 	_btn_proportional.name = "ProportionalToggle"
-	_btn_proportional.text = "Soft"
+	_btn_proportional.icon = _load_icon("icon_soft.svg")
+	if _btn_proportional.icon == null:
+		_btn_proportional.text = "Soft"
 	_btn_proportional.flat = true
 	_btn_proportional.toggle_mode = true
 	_btn_proportional.focus_mode = Control.FOCUS_NONE
@@ -291,24 +292,7 @@ func _build_ui() -> void:
 		popup.add_item(String(shape_id).capitalize(), popup.item_count)
 	popup.id_pressed.connect(_on_shape_menu_pressed)
 
-	_btn_ngon = Button.new()
-	_btn_ngon.name = "NgonTool"
-	_btn_ngon.icon = _load_icon("icon_ngon.svg")
-	if _btn_ngon.icon == null:
-		_btn_ngon.text = "N-Gon"
-	_btn_ngon.flat = true
-	_btn_ngon.tooltip_text = "N-Gon: Draw custom polygon and extrude into 3D (Enter to size height)"
-	_btn_ngon.pressed.connect(func(): shape_requested.emit(&"ngon"))
 
-	_btn_edit_params = Button.new()
-	_btn_edit_params.name = "EditParams"
-	_btn_edit_params.icon = _load_icon("icon_edit_params.svg")
-	if _btn_edit_params.icon == null:
-		_btn_edit_params.text = "Edit Params"
-	_btn_edit_params.flat = true
-	_btn_edit_params.tooltip_text = "Edit Params: Re-edit creation parameters for the selected shape"
-	_btn_edit_params.disabled = true
-	_btn_edit_params.pressed.connect(func(): edit_params_requested.emit())
 
 	_btn_trim_walls = Button.new()
 	_btn_trim_walls.name = "TrimWalls"
@@ -408,7 +392,7 @@ func _update_row_layout() -> void:
 	])
 	# Row 3: creation, object ops, CSG, trim, panels.
 	_add_row([
-		[_btn_new_shape, _btn_ngon, _btn_edit_params],
+		[_btn_new_shape],
 		[
 			_op_buttons["merge_objects"], _op_buttons["mirror_object"], _btn_mirror_model, _btn_mirror_apply, _op_buttons["center_pivot"],
 			_op_buttons["freeze_transform"], _op_buttons["meshbuilderize"],
@@ -672,7 +656,6 @@ func _on_selection_info_changed(_arg = null) -> void:
 		_op_buttons["csg_intersect"].disabled = false
 	if _op_buttons.has("smooth_auto"):
 		_op_buttons["smooth_auto"].disabled = not has_mesh
-	_btn_edit_params.disabled = not _active_mesh_editable()
 
 
 func sync_snapping(v_snap: bool, prop: bool, radius: float) -> void:

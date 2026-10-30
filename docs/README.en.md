@@ -32,7 +32,7 @@ The toolbar is three rows of icon groups (groups are separated by vertical lines
 |---|---|
 | 1 | modes (Object / Vertex / Edge / Face / Texture), Move / Rotate / Scale, gizmo Space, selection operations, Auto Smooth |
 | 2 | V-Snap, Soft (proportional editing) and its radius, Lit / Shadow / X-Ray, mesh operations (Extrude, Inset, Bevel, Subdiv, Merge, Del, Knife, Loop Cut, Connect, Bridge, Tunnel, Fill Hole, Weld, Detach) |
-| 3 | New Shape, N-Gon, Edit Params, object operations (Merge Objects, Mirror, Center Pivot, Freeze Xform, MeshBuilderize), Merge by Dist, CSG (Union / Subtract / Intersect), Trim Walls, panel buttons |
+| 3 | New Shape (every primitive, N-Gon included), object operations (Merge Objects, Mirror, Center Pivot, Freeze Xform, MeshBuilderize), Merge by Dist, CSG (Union / Subtract / Intersect), Trim Walls, panel buttons |
 
 Panels are separate bottom tabs: the toolbar opens on start, `Materials` and `UV Editor` are opened from
 the third row.
@@ -45,7 +45,7 @@ torus, n-gon — plus **Trim Walls** for skirting and mouldings along walls.
 - **New Shape** → pick a shape → drag the base on any surface → move the mouse to set the height →
   click to confirm. `Ctrl` locks the direction, `Esc` cancels.
 - Size-only shapes (cube, prism, plane) commit on release; the rest open a parameter modal.
-  **Edit Params** reopens it later — until the geometry is edited by hand.
+
 - N-Gon is drawn point by point.
 - Surface-aligned sheets (plane) are lifted off the surface by the normal offset.
 
