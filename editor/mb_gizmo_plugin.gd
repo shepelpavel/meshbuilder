@@ -67,6 +67,10 @@ const FILL_SCREEN_SCALE: float = 0.00133
 ## highlights and hovers share the "cursor preview" meaning), orange for the
 ## facing arrow. Bounds/arrow draw ON TOP (show through the object); the
 ## hovered face fill is depth-tested at the selection opacity.
+var _snap_corner_mat: StandardMaterial3D = null
+var _snap_edge_mat: StandardMaterial3D = null
+const SNAP_CORNER_COLOR := Color(0.35, 1.0, 0.45, 0.95)
+const SNAP_EDGE_COLOR := Color(0.25, 0.85, 1.0, 0.95)
 const CREATION_COLOR := Color(0.2, 0.9, 1.0, 1.0)
 const CREATION_ARROW_COLOR := Color(1.0, 0.55, 0.1, 1.0)
 
@@ -485,6 +489,13 @@ func _redraw(gizmo) -> void:
 		if creation_hover_node == node:
 			_draw_creation_hover(gizmo, mesh_data, creation_hover_face)
 			return
+
+	# Knife / N-gon aiming: the hover highlight + cursor square were shape-creator
+	# only, so an armed knife gave no feedback at all — you could not see which
+	# face or corner the first click would hit. Drawn WITHOUT an early return:
+	# the element overlays must stay visible underneath.
+	if ngon_drawer != null and ngon_drawer.is_active() and creation_hover_node == node:
+		_draw_creation_hover(gizmo, mesh_data, creation_hover_face)
 
 	# Trim Walls session: teal hover + amber chosen on the picked walls.
 	if trim_walls_session:
@@ -1243,9 +1254,24 @@ func _draw_ngon_drawer_overlay(gizmo, mesh_data: MBMeshData, drawer: MBNgonDrawe
 			vert_pts.append(p)
 		_add_vert_squares(gizmo, to_local, vert_pts)
 
-	# 5. Live cursor point square (under mouse)
+	# 5. Live cursor point square (under mouse), coloured by what the magnet
+	# grabbed: green = corner, cyan = edge, yellow = free.
 	if drawer.live_cursor_point != Vector3.ZERO:
-		_add_vert_squares(gizmo, to_local, PackedVector3Array([drawer.live_cursor_point]))
+		var marker_mat := _creation_vert_material
+		if drawer.last_snap_kind == 1:
+			if _snap_corner_mat == null:
+				_snap_corner_mat = _make_point_material(SNAP_CORNER_COLOR, 15.0)
+			marker_mat = _snap_corner_mat
+		elif drawer.last_snap_kind == 2:
+			if _snap_edge_mat == null:
+				_snap_edge_mat = _make_point_material(SNAP_EDGE_COLOR, 15.0)
+			marker_mat = _snap_edge_mat
+		var cursor_mesh_arrays: Array = []
+		cursor_mesh_arrays.resize(Mesh.ARRAY_MAX)
+		cursor_mesh_arrays[Mesh.ARRAY_VERTEX] = PackedVector3Array([to_local * drawer.live_cursor_point])
+		var cursor_mesh := ArrayMesh.new()
+		cursor_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_POINTS, cursor_mesh_arrays)
+		gizmo.add_mesh(cursor_mesh, marker_mat)
 
 ## Draws the live 3D extrusion bounds for N-Gon shape extrusion in HEIGHT state.
 func _draw_ngon_height_preview(gizmo, mesh_data: MBMeshData, drawer: MBNgonDrawer) -> void:

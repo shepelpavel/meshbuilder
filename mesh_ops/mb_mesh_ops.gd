@@ -176,6 +176,183 @@ static func inset_faces(mesh_data: MBMeshData, face_ids: PackedInt32Array,
 ## Unselected neighbor faces sharing split boundary edges are retriangulated into
 ## n-gons connected to the new midpoint vertices (each face owning its own
 ## duplicate positions, welded via coincident vertex groups).
+## Repairs T-junctions: a vertex that sits ON another face's edge (but is not a
+## corner of it) is inserted into that face, so the two sides share the split
+## instead of one being left with a whole edge and the other with two halves.
+## The knife leaves exactly such junctions when its split point lands on an edge
+## whose neighbour it could not update — the visible result is a torn face.
+## Returns how many corners were inserted.
+static func heal_t_junctions(mesh_data: MBMeshData, eps: float = 0.0015) -> int:
+	if mesh_data == null or mesh_data.faces.is_empty():
+		return 0
+	var total_inserted := 0
+
+	for pass_i in 3:
+		# Every position the mesh actually uses, so a dangling orphan can't
+		# seed a split.
+		var used: Array[int] = []
+		var seen := {}
+		for face in mesh_data.faces:
+			if face == null:
+				continue
+			for vi in face.get_indexes():
+				if not seen.has(vi):
+					seen[vi] = true
+					used.append(vi)
+
+		var changed := false
+		for fi in mesh_data.faces.size():
+			var face: MBFace = mesh_data.faces[fi]
+			if face == null:
+				continue
+			var loop := _ordered_loop(face)
+			if loop.size() < 3:
+				continue
+
+			# Insertions on this face: after corner i, at position p (with a src
+			# position for attributes).
+			var inserts := {} # corner index -> Array[Dictionary]
+			for i in loop.size():
+				var ia: int = loop[i]
+				var ib: int = loop[(i + 1) % loop.size()]
+				var pa: Vector3 = mesh_data.positions[ia]
+				var pb: Vector3 = mesh_data.positions[ib]
+				var ab := pb - pa
+				var len2 := ab.length_squared()
+				if len2 < 0.000001:
+					continue
+				var found: Array[Dictionary] = []
+				for vi in used:
+					if vi == ia or vi == ib:
+						continue
+					var p: Vector3 = mesh_data.positions[vi]
+					var t: float = (p - pa).dot(ab) / len2
+					if t <= 0.01 or t >= 0.99:
+						continue
+					if (pa + ab * t).distance_to(p) > eps:
+						continue
+					found.append({"t": t, "pos": p, "src": vi})
+				if found.is_empty():
+					continue
+				found.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+					return float(a["t"]) < float(b["t"]))
+				inserts[i] = found
+
+			if inserts.is_empty():
+				continue
+
+			var pts := PackedVector3Array()
+			var dups := PackedInt32Array()
+			for i in loop.size():
+				var ia: int = loop[i]
+				pts.append(mesh_data.positions[ia])
+				dups.append(_dup_position(mesh_data, ia, Vector3.ZERO))
+				if inserts.has(i):
+					for ins in inserts[i]:
+						pts.append(ins["pos"])
+						dups.append(_dup_position_at(mesh_data, ins["pos"], int(ins["src"])))
+						total_inserted += 1
+			var ref_n := _face_area_normal(mesh_data, face).normalized()
+			if ref_n.length_squared() < 0.0001:
+				ref_n = Vector3.UP
+			var rebuilt := _build_polygon_face_with_normal(mesh_data, pts, dups, ref_n, face.submesh_index)
+			if rebuilt == null:
+				continue
+			rebuilt.smoothing_group = face.smoothing_group
+			rebuilt.manual_uv = face.manual_uv
+			rebuilt.mirror_copy = face.mirror_copy
+			mesh_data.faces[fi] = rebuilt
+			changed = true
+
+		if not changed:
+			break
+		_rebuild_topology(mesh_data)
+		mesh_data.calculate_normals()
+
+	return total_inserted
+
+## Faces whose corners are the same set of positions as `face_index` (a wall
+## modelled with a face on each side has two of them). The knife cuts them
+## together, otherwise the far side keeps its uncut face — visible, but not
+## selectable, because it sits exactly under the new ones.
+static func coincident_faces(mesh_data: MBMeshData, face_index: int, eps: float = 0.0015) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	if mesh_data == null or face_index < 0 or face_index >= mesh_data.faces.size():
+		return out
+	var key := _corner_position_key(mesh_data, face_index, eps)
+	if key.is_empty():
+		return out
+	for fi in mesh_data.faces.size():
+		if fi == face_index:
+			continue
+		if _corner_position_key(mesh_data, fi, eps) == key:
+			out.append(fi)
+	return out
+
+static func _corner_position_key(mesh_data: MBMeshData, face_index: int, eps: float) -> String:
+	if face_index < 0 or face_index >= mesh_data.faces.size():
+		return ""
+	var face: MBFace = mesh_data.faces[face_index]
+	if face == null:
+		return ""
+	var loop := _ordered_loop(face)
+	if loop.size() < 3:
+		return ""
+	var step: float = maxf(eps, 0.0001) * 10.0
+	var keys: Array[String] = []
+	for vi in loop:
+		var p: Vector3 = mesh_data.positions[vi]
+		keys.append("%d:%d:%d" % [roundi(p.x / step), roundi(p.y / step), roundi(p.z / step)])
+	keys.sort()
+	return "|".join(keys)
+
+## Counts T-junctions: vertices that sit strictly inside another face's edge.
+## Independent of how many border edges the mesh has, so it works the same on a
+## closed solid and on an open wall (a wall legitimately gains border edges when
+## a cut splits its outline — counting those made a good cut look like a tear).
+static func count_t_junctions(mesh_data: MBMeshData, eps: float = 0.0015) -> int:
+	if mesh_data == null or mesh_data.faces.is_empty():
+		return 0
+	var used: Array[int] = []
+	var seen := {}
+	for face in mesh_data.faces:
+		if face == null:
+			continue
+		for vi in face.get_indexes():
+			if not seen.has(vi):
+				seen[vi] = true
+				used.append(vi)
+	if used.size() > 4000:
+		return 0
+
+	var hits := 0
+	for face in mesh_data.faces:
+		if face == null:
+			continue
+		var loop := _ordered_loop(face)
+		if loop.size() < 3:
+			continue
+		for i in loop.size():
+			var ia: int = loop[i]
+			var ib: int = loop[(i + 1) % loop.size()]
+			var pa: Vector3 = mesh_data.positions[ia]
+			var pb: Vector3 = mesh_data.positions[ib]
+			var ab := pb - pa
+			var len2 := ab.length_squared()
+			if len2 < 0.000001:
+				continue
+			for vi in used:
+				if vi == ia or vi == ib:
+					continue
+				var p: Vector3 = mesh_data.positions[vi]
+				var t: float = (p - pa).dot(ab) / len2
+				if t <= 0.01 or t >= 0.99:
+					continue
+				if (pa + ab * t).distance_to(p) <= eps:
+					hits += 1
+					break
+	return hits
+
 ## Bakes a mirror modifier into real geometry: every face gets a reflected
 ## twin (positions flipped on `axis` about the origin, winding swapped back,
 ## UVs/materials copied), so the reflected half becomes ordinary editable
@@ -2416,13 +2593,48 @@ static func cut_face(
 	if cut_2d.size() < 2:
 		return _fail("Cut face: cut points collapsed to < 2 distinct points")
 
-	var snap_thresh: float = 0.15  # 15cm tolerance to snap to perimeter edges
+	# Snap tolerance to the perimeter scales with the face: a fixed 15 cm grabbed
+	# the wrong edge on a 20 cm prop and was useless on a 20 m wall.
+	var snap_thresh: float = clampf(_face_2d_extent(loop_2d) * 0.06, 0.002, 0.15)
+	# Exact 3D position per 2D key. Rebuilding vertices through the face PLANE
+	# (origin + u*x + v*y) shifts every corner of a non-planar face by centimetres
+	# on a big irregular wall — the new faces end up detached from their
+	# neighbours. Corners keep their real positions and border splits are
+	# interpolated along the real 3D edge instead.
+	var exact3: Dictionary = {}
+	for i in loop.size():
+		exact3[_p2_key(loop_2d[i])] = mesh_data.positions[loop[i]]
+	var n_loop_pre: int = loop_2d.size()
 	var boundary_indices: Array[int] = []
 	for k in range(cut_2d.size()):
 		var info := _find_best_edge_for_point_2d(loop_2d, cut_2d[k])
 		if float(info["dist"]) <= snap_thresh:
 			boundary_indices.append(k)
 			cut_2d[k] = info["snapped"]
+			exact3[_p2_key(cut_2d[k])] = _exact_border_point_3d(mesh_data, loop,
+				n_loop_pre, info, cut_points, k, to_3d)
+
+	if not is_closed and boundary_indices.size() < 2:
+		# The knife extends an open cut to the border itself (Blender does the
+		# same): clicking two points inside the face still cuts it in two, and
+		# a pointer that missed the edge by a hair no longer aborts the cut.
+		var extended := _extend_open_cut_to_boundary(cut_2d, loop_2d)
+		if extended.size() == cut_2d.size():
+			cut_2d = extended
+			boundary_indices.clear()
+			for k in range(cut_2d.size()):
+				var info2 := _find_best_edge_for_point_2d(loop_2d, cut_2d[k])
+				if float(info2["dist"]) <= snap_thresh:
+					boundary_indices.append(k)
+					cut_2d[k] = info2["snapped"]
+					exact3[_p2_key(cut_2d[k])] = _exact_border_point_3d(mesh_data, loop,
+						n_loop_pre, info2, cut_points, k, to_3d)
+	if not is_closed and boundary_indices.size() < 2:
+		return _fail("Knife: both ends of the cut must land on the face border "
+			+ "(snap to an edge or a corner)")
+	for k in range(cut_2d.size()):
+		if not exact3.has(_p2_key(cut_2d[k])) and k < cut_points.size():
+			exact3[_p2_key(cut_2d[k])] = cut_points[k]
 
 	# Multi-slice condition:
 	# 1) Open cut with >= 2 boundary hits (e.g. zig-zag or edge-to-edge)
@@ -2443,7 +2655,7 @@ static func cut_face(
 				var edge_idx: int = b_info["edge_idx"]
 				var pa := mesh_data.positions[loop[edge_idx]]
 				var pb := mesh_data.positions[loop[(edge_idx + 1) % n_loop]]
-				var split_p := to_3d.call(cut_2d[b_k])
+				var split_p: Vector3 = exact3.get(_p2_key(cut_2d[b_k]), to_3d.call(cut_2d[b_k]))
 				_split_edge_in_adjacent_faces(mesh_data, face_index, pa, pb, split_p)
 
 		# Sequentially slice polygons across all boundary chains
@@ -2496,7 +2708,7 @@ static func cut_face(
 				continue
 			var base_idx := mesh_data.positions.size()
 			for p2 in poly:
-				mesh_data.positions.append(to_3d.call(p2))
+				mesh_data.positions.append(exact3.get(_p2_key(p2), to_3d.call(p2)))
 				mesh_data.textures0.append(Vector2(p2.x, p2.y))
 			var idxs := PackedInt32Array()
 			for t in tris:
@@ -2540,7 +2752,7 @@ static func cut_face(
 
 		var base_inner := mesh_data.positions.size()
 		for p2 in hole_poly:
-			mesh_data.positions.append(to_3d.call(p2))
+			mesh_data.positions.append(exact3.get(_p2_key(p2), to_3d.call(p2)))
 			mesh_data.textures0.append(Vector2(p2.x, p2.y))
 		var idxs_inner := PackedInt32Array()
 		for t in tris_inner:
@@ -2565,7 +2777,7 @@ static func cut_face(
 
 		var base_outer := mesh_data.positions.size()
 		for p2 in outer_spliced:
-			mesh_data.positions.append(to_3d.call(p2))
+			mesh_data.positions.append(exact3.get(_p2_key(p2), to_3d.call(p2)))
 			mesh_data.textures0.append(Vector2(p2.x, p2.y))
 		var idxs_outer := PackedInt32Array()
 		for t in tris_outer:
@@ -2585,6 +2797,60 @@ static func cut_face(
 		_rebuild_topology(mesh_data)
 		return res
 
+## Pushes both ends of an OPEN cut out to the contour border along their own
+## direction (Blender does the same): clicking two points inside the face still
+## cuts it in two, and a pointer that missed the edge no longer aborts the cut.
+## Packed arrays are copied on assignment, so the result must be taken.
+static func _extend_open_cut_to_boundary(cut_2d: PackedVector2Array, loop_2d: PackedVector2Array) -> PackedVector2Array:
+	if cut_2d.size() < 2 or loop_2d.size() < 3:
+		return cut_2d
+	var extent: float = maxf(_face_2d_extent(loop_2d), 0.001)
+	var out := cut_2d.duplicate()
+	var last: int = out.size() - 1
+
+	var start_dir: Vector2 = out[0] - out[1]
+	var start_hit = _border_hit_along(out[0], start_dir, loop_2d, extent)
+	if start_hit != null:
+		out[0] = start_hit
+
+	var end_dir: Vector2 = out[last] - out[last - 1]
+	var end_hit = _border_hit_along(out[last], end_dir, loop_2d, extent)
+	if end_hit != null:
+		out[last] = end_hit
+	return out
+
+## Farthest contour crossing along `dir` from `p` (null when nothing is hit).
+static func _border_hit_along(p: Vector2, dir: Vector2, loop_2d: PackedVector2Array, extent: float):
+	if dir.length_squared() < 0.00000001:
+		return null
+	dir = dir.normalized()
+	var far: Vector2 = p + dir * extent * 4.0
+	var best_t := 0.0005
+	var best_pt = null
+	for i in loop_2d.size():
+		var a: Vector2 = loop_2d[i]
+		var b: Vector2 = loop_2d[(i + 1) % loop_2d.size()]
+		var hit = Geometry2D.segment_intersects_segment(p, far, a, b)
+		if hit == null:
+			continue
+		var t: float = (hit - p).dot(dir)
+		if t > best_t:
+			best_t = t
+			best_pt = hit
+	return best_pt
+
+## Largest side of the contour's 2D bounding box — the scale factor for
+## distance tolerances on this face.
+static func _face_2d_extent(poly: PackedVector2Array) -> float:
+	if poly.is_empty():
+		return 0.0
+	var lo := poly[0]
+	var hi := poly[0]
+	for p in poly:
+		lo = Vector2(minf(lo.x, p.x), minf(lo.y, p.y))
+		hi = Vector2(maxf(hi.x, p.x), maxf(hi.y, p.y))
+	return maxf(hi.x - lo.x, hi.y - lo.y)
+
 static func _polygon_area_2d(poly: PackedVector2Array) -> float:
 	var area := 0.0
 	var n := poly.size()
@@ -2601,6 +2867,28 @@ static func _point_to_segment_distance_2d(p: Vector2, a: Vector2, b: Vector2) ->
 	var t := clampf((p - a).dot(ab) / ab_len2, 0.0, 1.0)
 	var closest := a + ab * t
 	return {"dist": p.distance_to(closest), "closest": closest, "t": t}
+
+## Quantised 2D key for the exact-position table in cut_face.
+static func _p2_key(p: Vector2) -> String:
+	return "%d:%d" % [roundi(p.x * 10000.0), roundi(p.y * 10000.0)]
+
+## 3D position of a border hit: a corner keeps its real position, a split point
+## is interpolated along the real 3D edge (never projected onto the face plane,
+## which drifts on non-planar faces).
+static func _exact_border_point_3d(mesh_data: MBMeshData, loop: PackedInt32Array, n_loop: int,
+		info: Dictionary, cut_points: PackedVector3Array, k: int, to_3d: Callable) -> Vector3:
+	if bool(info.get("is_vertex", false)):
+		var v_idx: int = int(info.get("vert_idx", -1))
+		if v_idx >= 0 and v_idx < n_loop:
+			return mesh_data.positions[loop[v_idx]]
+		return to_3d.call(info["snapped"])
+	var e_idx: int = int(info.get("edge_idx", -1))
+	if e_idx < 0 or e_idx >= n_loop:
+		return to_3d.call(info["snapped"])
+	var a: Vector3 = mesh_data.positions[loop[e_idx]]
+	var b: Vector3 = mesh_data.positions[loop[(e_idx + 1) % n_loop]]
+	var t: float = clampf(float(info.get("t", 0.5)), 0.0, 1.0)
+	return a.lerp(b, t)
 
 static func _find_best_edge_for_point_2d(loop: PackedVector2Array, pt: Vector2) -> Dictionary:
 	var best_dist := INF

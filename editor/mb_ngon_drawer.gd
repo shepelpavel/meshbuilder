@@ -22,8 +22,22 @@ enum Mode { NONE, KNIFE, NGON_EXTRUDE }
 enum State { INACTIVE, ARMED, DRAWING, DRAGGING_VERT, HEIGHT }
 
 const RAY_MISS := Vector3(INF, INF, INF)
+## Snap radii in WORLD units. The plugin sets them from screen pixels at the
+## cursor's depth on every mouse move (10 px for corners, 9 px for edges), so
+## the magnet feels the same on a 0.5 m prop and on a 20 m wall — fixed metres
+## grabbed everything on small objects and nothing on large ones.
 const SNAP_VERT_DISTANCE := 0.15
 const SNAP_EDGE_DISTANCE := 0.12
+var snap_vert_radius: float = SNAP_VERT_DISTANCE
+var snap_edge_radius: float = SNAP_EDGE_DISTANCE
+## Held Alt turns the magnet off entirely (place a point exactly where you
+## point at, without the face pulling it to a corner).
+var snap_disabled: bool = false
+## Snap radii follow the target face's size instead of screen pixels: the same
+## feel on a 10 cm prop face and on a 20 m wall, and never zero.
+var auto_radii: bool = true
+## What the last snap grabbed: 0 = nothing, 1 = a corner, 2 = an edge.
+var last_snap_kind: int = 0
 
 var mode: Mode = Mode.NONE
 var state: State = State.INACTIVE
@@ -127,12 +141,13 @@ func update_cursor_plane(raw_point: Vector3) -> void:
 
 	# Project point strictly onto plane
 	var proj := raw_point - plane_normal * plane_normal.dot(raw_point - plane_point)
-	var snapped_pt := _snap_point(proj)
 
-	# Restrict cut points to within the face boundary in KNIFE mode
+	# Keep a knife cut on the face FIRST, then snap: snapping before the clamp
+	# threw away a corner the cursor had just caught.
 	if mode == Mode.KNIFE and target_mesh != null and target_mesh.mb_mesh_data != null and target_face_index >= 0:
-		snapped_pt = _clamp_to_face_boundary(target_mesh, target_face_index, snapped_pt)
+		proj = _clamp_to_face_boundary(target_mesh, target_face_index, proj)
 
+	var snapped_pt := _snap_point(proj)
 	live_cursor_point = snapped_pt
 
 	if state == State.DRAGGING_VERT and dragged_vert_idx >= 0 and dragged_vert_idx < points.size():
@@ -142,7 +157,7 @@ func update_cursor_plane(raw_point: Vector3) -> void:
 
 	# Update hovered vertex index
 	hovered_vert_idx = -1
-	var best_d := SNAP_VERT_DISTANCE
+	var best_d := snap_vert_radius
 	for i in range(points.size()):
 		var d := proj.distance_to(points[i])
 		if d < best_d:
@@ -347,33 +362,19 @@ func snap_starting_point(point: Vector3, normal: Vector3, p_mesh: MBMesh = null,
 		return grid.snap_point(point)
 	return point
 
+## Snaps a world point to that face's corners/edges with the same radii as the
+## magnetic snap (closest wins).
 func snap_to_face(node: MBMesh, face_index: int, p: Vector3) -> Vector3:
 	if node == null or node.mb_mesh_data == null or face_index < 0 or face_index >= node.mb_mesh_data.faces.size():
 		return p
-	var md: MBMeshData = node.mb_mesh_data
-	var xf := node.global_transform
-	var face := md.faces[face_index]
-	var dist_idxs := face.get_distinct_indexes()
-
-	# Snap to corners
-	for idx in dist_idxs:
-		var world_corner: Vector3 = xf * md.positions[idx]
-		if p.distance_to(world_corner) <= SNAP_VERT_DISTANCE:
-			return world_corner
-
-	# Snap to edges
-	for edge in face.get_edges():
-		var wa: Vector3 = xf * md.positions[edge.a]
-		var wb: Vector3 = xf * md.positions[edge.b]
-		var ab := wb - wa
-		var len2 := ab.length_squared()
-		if len2 > 0.000001:
-			var t := clampf((p - wa).dot(ab) / len2, 0.0, 1.0)
-			var edge_pt := wa + ab * t
-			if p.distance_to(edge_pt) <= SNAP_EDGE_DISTANCE:
-				return edge_pt
-
-	return p
+	var saved_mesh := target_mesh
+	var saved_face := target_face_index
+	target_mesh = node
+	target_face_index = face_index
+	var out := snap_point_world(p)
+	target_mesh = saved_mesh
+	target_face_index = saved_face
+	return out
 
 func _clamp_to_face_boundary(node: MBMesh, face_idx: int, world_pt: Vector3) -> Vector3:
 	if node == null or node.mb_mesh_data == null:
@@ -429,40 +430,122 @@ func _clamp_to_face_boundary(node: MBMesh, face_idx: int, world_pt: Vector3) -> 
 	return xf * to_3d.call(best_closest)
 # ==============================================================================
 
-func _snap_point(p: Vector3) -> Vector3:
-	# 1. Snap to placed vertices
+## Magnetic snap: the CLOSEST candidate wins between the points already placed
+## in this session, the target face's corners (corner radius) and its edges
+## (edge radius). Picking by type instead used to send the cursor to a far
+## corner while a near edge was right under it.
+## One position per welded corner of the mesh. Cached by position count (ids
+## stay valid while vertices move — positions are resolved at use time).
+var _corner_cache: Dictionary = {}
+
+## Radii as a fraction of the target face's size. A corner magnet of 14 % and an
+## edge magnet of 20 % of the face's bigger side reads the same at any zoom and
+## cannot collapse to "a fraction of a pixel" like a screen-space radius did.
+func _refresh_auto_radii() -> void:
+	if target_mesh == null or target_mesh.mb_mesh_data == null or target_face_index < 0:
+		return
+	var md: MBMeshData = target_mesh.mb_mesh_data
+	if target_face_index >= md.faces.size():
+		return
+	var loop := MBMeshOps._ordered_loop(md.faces[target_face_index])
+	if loop.size() < 3:
+		return
+	var extent := 0.0
+	for i in loop.size():
+		var a: Vector3 = md.positions[loop[i]]
+		var b: Vector3 = md.positions[loop[(i + 1) % loop.size()]]
+		extent = maxf(extent, a.distance_to(b))
+	if extent <= 0.0001:
+		return
+	snap_vert_radius = clampf(extent * 0.14, 0.004, 1.0)
+	snap_edge_radius = clampf(extent * 0.20, 0.006, 1.5)
+
+func _mesh_corner_positions(md: MBMeshData) -> PackedInt32Array:
+	var key: int = md.get_instance_id()
+	var cached: Dictionary = _corner_cache.get(key, {})
+	if int(cached.get("size", -1)) == md.positions.size() and cached.has("ids"):
+		return cached["ids"]
+	var ids := PackedInt32Array()
+	var seen := {}
+	for face in md.faces:
+		if face == null:
+			continue
+		for vi in face.get_indexes():
+			var p: Vector3 = md.positions[vi]
+			var k := Vector3i(roundi(p.x * 10000.0), roundi(p.y * 10000.0), roundi(p.z * 10000.0))
+			if seen.has(k):
+				continue
+			seen[k] = true
+			ids.append(vi)
+	_corner_cache[key] = {"size": md.positions.size(), "ids": ids}
+	return ids
+
+func snap_point_world(p: Vector3) -> Vector3:
+	var best := p
+	var best_d := INF
+	if snap_disabled:
+		return p
+	if auto_radii:
+		_refresh_auto_radii()
+
+	last_snap_kind = 0
 	for i in range(points.size()):
 		if state == State.DRAGGING_VERT and i == dragged_vert_idx:
 			continue
-		if p.distance_to(points[i]) <= SNAP_VERT_DISTANCE:
-			return points[i]
+		var d: float = p.distance_to(points[i])
+		if d <= snap_vert_radius and d < best_d:
+			best_d = d
+			best = points[i]
+			last_snap_kind = 1
 
-	# 2. Snap to target mesh face vertices & edges
 	if target_mesh != null and target_mesh.mb_mesh_data != null and target_face_index >= 0:
 		var md: MBMeshData = target_mesh.mb_mesh_data
-		var xf := target_mesh.global_transform
 		if target_face_index < md.faces.size():
+			var xf := target_mesh.global_transform
 			var face := md.faces[target_face_index]
-			var dist_idxs := face.get_distinct_indexes()
-
-			# Snap to corners
-			for idx in dist_idxs:
-				var world_corner: Vector3 = xf * md.positions[idx]
-				if p.distance_to(world_corner) <= SNAP_VERT_DISTANCE:
-					return world_corner
-
-			# Snap to edges
-			for edge in face.get_edges():
-				var wa: Vector3 = xf * md.positions[edge.a]
-				var wb: Vector3 = xf * md.positions[edge.b]
-				var ab := wb - wa
-				var len2 := ab.length_squared()
-				if len2 > 0.000001:
+			# Corners of the WHOLE mesh: aiming at a corner that belongs to the
+			# neighbouring face is normal while cutting, and only the target
+			# face's own corners used to snap.
+			# Corners WIN over edges inside their radius: near a corner the edge
+			# is always closer, so "closest wins" made vertices unreachable.
+			var corner_best := INF
+			var corner_pt := Vector3.ZERO
+			var corner_hit := false
+			for idx in _mesh_corner_positions(md):
+				var corner: Vector3 = xf * md.positions[idx]
+				var dc: float = p.distance_to(corner)
+				if dc <= snap_vert_radius and dc < corner_best:
+					corner_best = dc
+					corner_pt = corner
+					corner_hit = true
+			if corner_hit and corner_best <= best_d:
+				best_d = corner_best
+				best = corner_pt
+				last_snap_kind = 1
+			# Inside a corner's radius the corner always wins — an edge is
+			# geometrically closer near every corner, so "closest wins" made
+			# vertices impossible to hit.
+			if not corner_hit:
+				for edge in face.get_edges():
+					var wa: Vector3 = xf * md.positions[edge.a]
+					var wb: Vector3 = xf * md.positions[edge.b]
+					var ab := wb - wa
+					var len2 := ab.length_squared()
+					if len2 <= 0.000001:
+						continue
 					var t := clampf((p - wa).dot(ab) / len2, 0.0, 1.0)
-					var edge_pt := wa + ab * t
-					if p.distance_to(edge_pt) <= SNAP_EDGE_DISTANCE:
-						return edge_pt
+					var edge_pt: Vector3 = wa + ab * t
+					var de: float = p.distance_to(edge_pt)
+					if de <= snap_edge_radius and de < best_d:
+						best_d = de
+						best = edge_pt
+						last_snap_kind = 2
+	return best
 
+func _snap_point(p: Vector3) -> Vector3:
+	var snapped := snap_point_world(p)
+	if snapped != p:
+		return snapped
 	# 3. Snap to grid if enabled
 	if grid != null and grid.enabled:
 		return _snap_to_grid(p)

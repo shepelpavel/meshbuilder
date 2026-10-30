@@ -32,7 +32,7 @@ const ACTIONS: Dictionary = {
 	# Selection modes (viewport keypresses while editing).
 	"select_vertex":   { "label": "Select: Vertex Mode",   "keys": [[KEY_H, 0, 0, 0], [KEY_1, 0, 0, 0]] },
 	"select_edge":     { "label": "Select: Edge Mode",     "keys": [[KEY_J, 0, 0, 0], [KEY_2, 0, 0, 0]] },
-	"select_face":     { "label": "Select: Face Mode",     "keys": [[KEY_K, 0, 0, 0], [KEY_3, 0, 0, 0]] },
+	"select_face":     { "label": "Select: Face Mode",     "keys": [[KEY_3, 0, 0, 0]] },
 	"select_texture":  { "label": "Select: Texture Mode",  "keys": [[KEY_6, 0, 0, 0]] },
 	"select_object":   { "label": "Select: Object Mode",   "keys": [[KEY_4, 0, 0, 0]] },
 	"cycle_space":     { "label": "Cycle Gizmo Space",     "keys": [[KEY_X, 0, 1, 0]] },
@@ -76,7 +76,7 @@ const ACTIONS: Dictionary = {
 	"op_weld":         { "label": "Mesh Op: Merge Vertices",  "keys": [[KEY_M, 0, 0, 0]] },
 	"op_detach":       { "label": "Mesh Op: Detach Faces",    "keys": [] },
 	"op_delete":       { "label": "Mesh Op: Delete Selection", "keys": [[KEY_X, 0, 0, 0]] },
-	"op_knife":        { "label": "Mesh Op: Knife Tool",     "keys": [] },
+	"op_knife":        { "label": "Mesh Op: Knife Tool",     "keys": [[KEY_K, 0, 0, 0]] },
 	"op_bridge":       { "label": "Mesh Op: Bridge Edges",   "keys": [[KEY_B, 0, 0, 1]] },
 	"op_connect":      { "label": "Mesh Op: Connect",        "keys": [] },
 	"op_fill_hole":    { "label": "Mesh Op: Fill Hole",      "keys": [] },

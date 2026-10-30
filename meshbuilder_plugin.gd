@@ -654,6 +654,16 @@ func _handle_action_key(key_event: InputEventKey) -> int:
 					gizmo_plugin.element_editor.proportional_radius)
 			if logger:
 				logger.info("tools", "Vertex Snap %s" % ["ON" if gizmo_plugin.element_editor.vertex_snap_enabled else "OFF"])
+		&"op_knife":
+			# The knife is the one op that belongs in OBJECT mode too (it picks
+			# its own face), so it must not fall into the edit-mode gate below.
+			# Pressing it again cancels, like every other modal tool.
+			if ngon_drawer.is_active():
+				_ngon_drawer_abort("Knife cancelled")
+				return AFTER_GUI_INPUT_STOP
+			if editor.active_mesh == null:
+				return AFTER_GUI_INPUT_PASS
+			_on_operation_requested("knife_tool")
 		&"toggle_proportional":
 			gizmo_plugin.element_editor.proportional_enabled = not gizmo_plugin.element_editor.proportional_enabled
 			if logger:
@@ -829,6 +839,21 @@ func _on_selection_changed() -> void:
 	# picking a CSG cutter) keeps the MBMesh active.
 	# Unconditionally update active_mesh: if a non-MBMesh (or nothing) is selected,
 	# active_mesh becomes null so MeshBuilder mode deactivates cleanly.
+	# While a knife / n-gon session is running the target MUST stay selected:
+	# the editor only forwards viewport input to a plugin whose object is edited,
+	# so one stray click on the background used to deselect the mesh and the tool
+	# went dead mid-session ("cannot hit anything with the knife").
+	if ngon_drawer != null and ngon_drawer.is_active():
+		var session_mesh := ngon_drawer.target_mesh
+		if session_mesh != null and is_instance_valid(session_mesh) and session_mesh.mb_mesh_data != null:
+			editor.active_mesh = session_mesh
+			if not _session_reselecting and (mb_mesh == null or not nodes.has(session_mesh)):
+				_session_reselecting = true
+				selection.clear()
+				selection.add_node(session_mesh)
+				_session_reselecting = false
+			return
+
 	editor.active_mesh = mb_mesh
 
 	# While an element mode is active the scene selection stays narrowed to
@@ -3162,9 +3187,11 @@ func _start_ngon_shape_tool() -> void:
 	if logger:
 		logger.info("plugin", "N-Gon Extrude active — click a surface to draw polygon")
 func _ngon_drawer_input(camera: Camera3D, event: InputEvent) -> int:
+	_ngon_snap_camera = camera
 	if event is InputEventMouseMotion:
 		_last_mouse_pos = event.position
 		_last_mouse_camera = camera
+		_update_ngon_snap_radii()
 		var ray_o: Vector3 = camera.project_ray_origin(event.position)
 		var ray_d: Vector3 = camera.project_ray_normal(event.position)
 
@@ -3222,10 +3249,13 @@ func _ngon_drawer_input(camera: Camera3D, event: InputEvent) -> int:
 
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
+			_update_ngon_snap_radii()
 			match ngon_drawer.state:
 				MBNgonDrawer.State.ARMED:
 					if _ngon_drawer_begin_from_surface(camera, event.position):
 						return AFTER_GUI_INPUT_STOP
+					# A click that lands on nothing used to be silent.
+					_op_hint("Knife: click on an MBMesh face to start the cut")
 					return AFTER_GUI_INPUT_PASS
 				MBNgonDrawer.State.DRAWING:
 					if ngon_drawer.hovered_vert_idx >= 0:
@@ -3274,6 +3304,61 @@ func _ngon_drawer_input(camera: Camera3D, event: InputEvent) -> int:
 
 	return AFTER_GUI_INPUT_PASS
 
+## Converts screen pixels to world units at the cursor's depth — the snap
+## magnet has to feel the same at any zoom (fixed metres grabbed everything on
+## a 0.5 m prop and nothing on a 20 m wall).
+func _ngon_snap_px_to_world(camera: Camera3D, at: Vector3, px: float) -> float:
+	if camera == null or not camera.is_inside_tree():
+		return 0.15
+	var depth: float = maxf(0.05, (at - camera.global_position).dot(-camera.global_transform.basis.z))
+	var view_h: float = 2.0 * depth * tan(deg_to_rad(camera.fov) * 0.5)
+	var vp := camera.get_viewport()
+	var vp_h: float = float(vp.get_visible_rect().size.y) if vp != null else 1080.0
+	return view_h * px / maxf(1.0, vp_h)
+
+## Refreshes the drawer's snap radii from the current cursor position.
+func _update_ngon_snap_radii() -> void:
+	if ngon_drawer == null:
+		return
+	ngon_drawer.snap_disabled = false
+	# Radii are face-relative inside the drawer (auto_radii). Assigning them from
+	# screen pixels here overwrote that with a one-frame-stale depth and could
+	# collapse the magnet to a millimetre.
+
+var _ngon_snap_camera: Camera3D = null
+var _session_reselecting: bool = false
+
+## Face of `mesh` closest to a world point (used when the cursor ray lands on a
+## neighbour: the knife must stay on the mesh it was armed for).
+func _nearest_face_of(mesh: MBMesh, world_point: Vector3) -> int:
+	if mesh == null or mesh.mb_mesh_data == null:
+		return -1
+	var md: MBMeshData = mesh.mb_mesh_data
+	var local := mesh.global_transform.affine_inverse() * world_point
+	var best := -1
+	var best_d := INF
+	for fi in md.faces.size():
+		var face: MBFace = md.faces[fi]
+		if face == null:
+			continue
+		var idxs := face.get_indexes()
+		if idxs.size() < 3:
+			continue
+		# distance to the face PLANE, then require the point to fall near the
+		# face's own triangle fan (cheap: centroid distance)
+		var n := MBMath.normal_from_positions(md.positions, idxs)
+		if n.length_squared() < 0.000001:
+			continue
+		var c := Vector3.ZERO
+		for vi in idxs:
+			c += md.positions[vi]
+		c /= float(idxs.size())
+		var d := absf(n.normalized().dot(local - c)) + c.distance_to(local) * 0.001
+		if d < best_d:
+			best_d = d
+			best = fi
+	return best
+
 func _ngon_drawer_begin_from_surface(camera: Camera3D, screen_pos: Vector2) -> bool:
 	var hit := _pick_creation_surface(camera, screen_pos)
 	if hit.is_empty():
@@ -3296,6 +3381,16 @@ func _ngon_drawer_begin_from_surface(camera: Camera3D, screen_pos: Vector2) -> b
 	if ngon_drawer.mode == MBNgonDrawer.Mode.KNIFE:
 		if best_mesh == null or best_face < 0:
 			return false
+		# The knife belongs to the mesh it was armed on: a ray that grazes a
+		# corner often hits the NEIGHBOUR face or even another object, and the
+		# cut then starts on the wrong surface. Keep the armed mesh and take its
+		# face nearest the clicked point.
+		var active := editor.active_mesh
+		if active != null and best_mesh != active and active.mb_mesh_data != null:
+			var best_idx := _nearest_face_of(active, hit["point"])
+			if best_idx >= 0:
+				best_mesh = active
+				best_face = best_idx
 		var start_pt := ngon_drawer.snap_starting_point(hit["point"], hit["normal"], best_mesh, best_face)
 		ngon_drawer.begin(start_pt, hit["normal"], best_mesh, best_face)
 		_clear_creation_hover()
@@ -3358,12 +3453,56 @@ func _on_ngon_drawer_complete() -> void:
 		if logger:
 			cmd.logger = logger
 
+		# A cut that leaves open edges has torn the mesh (an end slid off the
+		# border): take the snapshot back instead of committing the damage.
+		var open_before: int = MBSelectionOps.select_boundary_edges(target_m.mb_mesh_data).size()
+		var snapshot := MBCommand.copy_mesh_data(target_m.mb_mesh_data)
+		# A face that has a twin with the same corners (a wall with a face on
+		# each side) must be cut on both sides, or the far one stays under the
+		# new faces — visible but impossible to select.
+		var twins := MBMeshOps.coincident_faces(target_m.mb_mesh_data, target_f)
+		var cut_points_world := PackedVector3Array()
+		if not twins.is_empty():
+			var xf_cut: Transform3D = target_m.global_transform
+			for p in ngon_drawer.points:
+				cut_points_world.append(xf_cut.affine_inverse() * p)
 		var res := ngon_drawer.complete()
+		if res.get("ok", false):
+			# A torn cut leaves a vertex sitting inside another face's edge.
+			# Counting border edges (the old check) was wrong on open walls: a
+			# cut that splits the outline legitimately adds border edges, and a
+			# good cut was reverted as a "tear".
+			var torn: int = MBMeshOps.count_t_junctions(target_m.mb_mesh_data)
+			if torn > 0:
+				var healed := MBMeshOps.heal_t_junctions(target_m.mb_mesh_data)
+				target_m.mb_mesh_data.calculate_normals()
+				torn = MBMeshOps.count_t_junctions(target_m.mb_mesh_data)
+				if healed > 0 and logger:
+					logger.info("mesh_ops", "Knife: healed %d T-junction(s)" % healed)
+			if torn > 0:
+				MBCommand.restore_mesh_data(target_m.mb_mesh_data, snapshot)
+				target_m.rebuild()
+				target_m.update_gizmos()
+				ngon_drawer.reset()
+				_op_hint("Knife: cut would tear the mesh — click on two different edges")
+				return
 		if not res.get("ok", false):
 			if logger:
 				logger.warn("mesh_ops", "Knife cut failed: %s" % res.get("error", "?"))
 			_set_creation_hint("Knife cut failed: %s" % res.get("error", "?"))
 			return
+
+		if not twins.is_empty() and cut_points_world.size() >= 2:
+			# Descending order: cutting a face re-indexes the array.
+			twins.sort()
+			twins.reverse()
+			for fi_double in twins:
+				if fi_double >= target_m.mb_mesh_data.faces.size():
+					continue
+				var twin_res := MBMeshOps.cut_face(target_m.mb_mesh_data, fi_double,
+					cut_points_world, false)
+				if logger and not twin_res.get("ok", false):
+					logger.warn("mesh_ops", "Knife: twin face cut skipped: %s" % twin_res.get("error", "?"))
 
 		cmd.capture_after()
 		if not cmd.is_noop():
