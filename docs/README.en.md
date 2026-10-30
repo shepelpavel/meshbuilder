@@ -31,7 +31,7 @@ The toolbar is three rows of icon groups (groups are separated by vertical lines
 | Row | Contents |
 |---|---|
 | 1 | modes (Object / Vertex / Edge / Face / Texture), Move / Rotate / Scale, gizmo Space, selection operations, Auto Smooth |
-| 2 | V-Snap, Soft (proportional editing) and its radius, grid + snapping, Lit / Shadow / X-Ray, mesh operations (Extrude, Inset, Bevel, Subdiv, Merge, Del, Knife, Loop Cut, Connect, Bridge, Tunnel, Fill Hole, Weld, Detach) |
+| 2 | V-Snap, Soft (proportional editing) and its radius, Lit / Shadow / X-Ray, mesh operations (Extrude, Inset, Bevel, Subdiv, Merge, Del, Knife, Loop Cut, Connect, Bridge, Tunnel, Fill Hole, Weld, Detach) |
 | 3 | New Shape, N-Gon, Edit Params, object operations (Merge Objects, Mirror, Center Pivot, Freeze Xform, MeshBuilderize), Merge by Dist, CSG (Union / Subtract / Intersect), Trim Walls, panel buttons |
 
 Panels are separate bottom tabs: the toolbar opens on start, `Materials` and `UV Editor` are opened from
@@ -134,7 +134,7 @@ after that each mesh carries its own set.
 ## UV editor
 
 The `UV Editor` tab has **UV1** (texture) and **UV2** (lightmap) channels, Auto/Manual modes,
-Move/Rotate/Scale tools (`W` / `E` / `R`; `F` frames the selection) and grid snapping with a selectable step.
+Move/Rotate/Scale tools (`W` / `E` / `R`; `F` frames the selection) and snapping to the Godot grid.
 
 - Projections: **Planar**, **Box**, **Fit** into [0,1], **Unwrap** into a clean non-overlapping layout,
   **Lightmap** — a UV2 atlas unwrap for `LightmapGI`.
@@ -147,9 +147,9 @@ Move/Rotate/Scale tools (`W` / `E` / `R`; `F` frames the selection) and grid sna
 
 ## Grid and snapping
 
-The plugin draws its own grid over the scene: `Y` toggles snapping, `=` / `-` make the division finer or
-coarser, `Ctrl+=` / `Ctrl+-` scale the cell, `[` / `]` raise or lower the grid plane, `\` resets its
-height. Snapping applies to new shapes and to dragging elements alike.
+Snapping follows the **Godot grid**: the step comes from the editor's Snap Settings dialog (1 m cell when
+that is unavailable). The plugin no longer draws a grid of its own — you see the editor's grid. `Y` or the toolbar **Snap** button toggles it.
+applies to new shapes and to dragging elements alike.
 
 ## Keyboard reference
 
@@ -172,8 +172,6 @@ height. Snapping applies to new shapes and to dragging elements alike.
 | `Alt+L` / `Alt+R` | face loop / face ring |
 | `Alt+Z` | X-Ray |
 | `Y` | toggle snapping |
-| `=` / `-`, `Ctrl+=` / `Ctrl+-` | grid division, cell size |
-| `[` `]` `\` | grid elevation, reset |
 
 Every binding is rebindable in the editor settings; clashes with Godot's own keys are cleared on first
 run.

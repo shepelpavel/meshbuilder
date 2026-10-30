@@ -304,7 +304,6 @@ func is_editing_node(node: MBMesh) -> bool:
 ## The MeshBuilder grid overlay. Drawn onto THIS gizmo when its node is the
 ## active mesh (single grid source, no duplicates); the plugin's per-frame
 ## driver pokes update_gizmos() whenever the grid rebuilds.
-var grid_view: MBGridView = null
 
 ## Returns mesh data for a gizmo's node, or null when not editable.
 func _mesh_data_of(gizmo) -> MBMeshData:

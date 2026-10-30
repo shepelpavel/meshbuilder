@@ -24,6 +24,9 @@ extends VBoxContainer
 # Signals
 # ==============================================================================
 
+## Emitted when the user toggles snapping (the editor grid step).
+signal snap_toggled(enabled: bool)
+
 ## Emitted when the user clicks a mode button.
 signal mode_button_pressed(mode: MBEditor.SelectMode)
 
@@ -47,11 +50,6 @@ signal overlay_toggled(pinned: bool)
 
 ## Emitted when the user clicks the explicit Reset Panel button on the toolbar.
 signal reset_panel_requested
-
-## Grid settings moved out of the toolbar into the overlay panel (opened by
-## this button); the toolbar keeps only a lightweight grid-status readout
-## that mirrors MBGrid.
-signal grid_panel_toggled(open: bool)
 
 ## Emitted when the user clicks the Material & UV dock button to focus it.
 
@@ -78,6 +76,7 @@ const ICON_DIR := "res://addons/meshbuilder/icons/"
 
 var _btn_mirror_model: Button = null
 var _btn_mirror_apply: Button = null
+var _btn_snap: Button
 var _btn_vertex_snap: Button
 var _btn_proportional: Button
 var _spin_prop_radius: SpinBox
@@ -105,8 +104,6 @@ var _btn_materials: Button
 var _btn_uv_editor: Button
 var _op_buttons: Dictionary = {}
 var _btn_settings: Button
-var _btn_grid_panel: Button
-var _lbl_grid_state: Label
 var _btn_obj_lit: Button
 var _btn_obj_shadow: Button
 var _btn_xray: Button
@@ -151,23 +148,19 @@ func _build_ui() -> void:
 	_btn_space.tooltip_text = "Gizmo orientation space (X to cycle): Element, Object, World"
 	_btn_space.pressed.connect(_on_space_button_pressed)
 
-	# Grid settings & readout
-	_btn_grid_panel = Button.new()
-	_btn_grid_panel.name = "GridPanelToggle"
-	_btn_grid_panel.icon = _load_icon("icon_grid.svg")
-	if _btn_grid_panel.icon == null:
-		_btn_grid_panel.text = "Grid"
-	_btn_grid_panel.toggle_mode = true
-	_btn_grid_panel.flat = true
-	_btn_grid_panel.focus_mode = Control.FOCUS_NONE
-	_btn_grid_panel.tooltip_text = "Grid & snapping settings (unit, subdivisions, elevation, draw-on-grid). Keys: =/- subdivisions, Shift+=/- unit, [/] elevation, \\ reset, Y snap, G draw-on-grid"
-	_btn_grid_panel.toggled.connect(func(on: bool): grid_panel_toggled.emit(on))
 
-	_lbl_grid_state = Label.new()
-	_lbl_grid_state.name = "GridState"
-	_lbl_grid_state.text = "0.2m"
-	_lbl_grid_state.tooltip_text = "Current snap step (unit / subdivisions) — elevation shown when nonzero"
 
+	_btn_snap = Button.new()
+	_btn_snap.name = "SnapToggle"
+	_btn_snap.icon = _load_icon("icon_snap.svg")
+	if _btn_snap.icon == null:
+		_btn_snap.text = "Snap"
+	_btn_snap.toggle_mode = true
+	_btn_snap.button_pressed = true
+	_btn_snap.flat = true
+	_btn_snap.focus_mode = Control.FOCUS_NONE
+	_btn_snap.tooltip_text = "Snapping to the editor grid step (Y). Alt in the knife turns the magnet off."
+	_btn_snap.toggled.connect(func(on: bool): snap_toggled.emit(on))
 
 	_btn_vertex_snap = Button.new()
 	_btn_vertex_snap.name = "VertexSnapToggle"
@@ -373,7 +366,7 @@ func _build_ui() -> void:
 	_btn_settings.flat = true
 	_btn_settings.toggle_mode = true
 	_btn_settings.focus_mode = Control.FOCUS_NONE
-	_btn_settings.tooltip_text = "Display settings (grid, wireframe, selection, hover opacity)"
+	_btn_settings.tooltip_text = "Display settings (wireframe, selection, hover opacity)"
 	_btn_settings.toggled.connect(func(on: bool): settings_panel_toggled.emit(on))
 	_update_row_layout()
 
@@ -401,8 +394,7 @@ func _update_row_layout() -> void:
 	])
 	# Row 2: snapping / grid / display in front, then the mesh operations.
 	_add_row([
-		[_btn_vertex_snap, _btn_proportional, _spin_prop_radius],
-		[_btn_grid_panel, _lbl_grid_state],
+		[_btn_snap, _btn_vertex_snap, _btn_proportional, _spin_prop_radius],
 		[_btn_obj_lit, _btn_obj_shadow, _btn_xray],
 		[
 			_op_buttons["extrude_faces"], _op_buttons["inset_faces"], _op_buttons["bevel_edges"],
@@ -758,17 +750,9 @@ func set_editing_active(active: bool) -> void:
 func set_overlay_pinned(pinned: bool) -> void:
 	_btn_overlay.set_pressed_no_signal(pinned)
 
-## Mirrors MBGrid into the one-line readout WITHOUT emitting (the plugin
-## owns the state; the overlay panel is the control surface).
-func sync_grid(g: MBGrid) -> void:
-	if g == null:
+## Reflects the snapping state (changed by the Y shortcut, the toolbar button or
+## the plugin) without re-emitting.
+func sync_snap(enabled: bool) -> void:
+	if _btn_snap == null or not is_instance_valid(_btn_snap):
 		return
-	var text: String = "%sm" % str(snappedf(g.step(), 0.0001))
-	var elev := g.elevation_summary()
-	if elev != "":
-		text += "  " + elev
-	if not g.enabled:
-		text += " (snap off)"
-	_lbl_grid_state.text = text
-
-
+	_btn_snap.set_pressed_no_signal(enabled)

@@ -11,18 +11,14 @@ var editor: MBEditor = MBEditor.new()
 var gizmo_plugin: MBGizmoPlugin = MBGizmoPlugin.new()
 var tool_bridge: MBToolBridge = MBToolBridge.new()
 
-## The plugin's own grid/snapping state (independent of the editor's 3D
-## grid): element drags, the extrude gesture, and shape creation snap to it;
-## `draw_on_grid` routes creation onto the grid plane at the grid elevation.
+## Snapping state: element drags, the extrude gesture and shape creation snap
+## to the editor's grid (MeshBuilder no longer draws a grid of its own).
 var grid: MBGrid = MBGrid.new()
 
 ## Live EditorSettings instance (null in headless test runs) — shortcut
 ## rebinds and grid persistence go through it.
 var _settings: Object = null
 
-## The viewport-rendered cyan grid (MBGridView injects a line mesh into the
-## editor's 3D SubViewport; it never pollutes the edited scene).
-var grid_view: MBGridView = MBGridView.new(grid)
 
 ## Shape creation and interactive polygon drawing controllers
 var shape_creator: MBShapeCreator = MBShapeCreator.new()
@@ -120,12 +116,7 @@ func _enter_tree():
 	# load the persisted grid settings.
 	_settings = get_editor_interface().get_editor_settings()
 	MBActions.register(_settings, logger)
-	_load_grid_settings()
-	grid.changed.connect(_on_grid_changed)
-	grid_view.logger = logger
-	gizmo_plugin.grid_view = grid_view
 	set_process(true)
-	_attach_grid_view_scenario()
 
 	# Connect editor signals
 	editor.active_mesh_changed.connect(_on_active_mesh_changed)
@@ -157,9 +148,9 @@ func _enter_tree():
 	toolbar.operation_requested.connect(_on_operation_requested)
 	toolbar.edit_params_requested.connect(_on_edit_params_requested)
 	toolbar.trim_walls_requested.connect(_on_trim_walls_requested)
+	toolbar.snap_toggled.connect(_on_toolbar_snap_toggled)
 	toolbar.overlay_toggled.connect(_on_overlay_toggled)
 	toolbar.reset_panel_requested.connect(_on_reset_panel_requested)
-	toolbar.grid_panel_toggled.connect(_on_grid_panel_toggled)
 	toolbar.materials_dock_requested.connect(focus_material_dock)
 	toolbar.uv_editor_requested.connect(focus_uv_editor)
 	toolbar.settings_panel_toggled.connect(_on_settings_panel_toggled)
@@ -182,7 +173,6 @@ func _enter_tree():
 	toolbar.object_shadow_toggled.connect(_on_object_shadow_toggled)
 	toolbar.xray_toggled.connect(_on_xray_toggled)
 	_mount_toolbar_in_bottom_panel()
-	toolbar.sync_grid(grid)
 	# Tool overlay panel floating in the 3D viewport (readouts + params
 	# modal; logging goes to the Godot console via MBLogger).
 	tool_overlay = MBToolOverlay.new()
@@ -193,9 +183,6 @@ func _enter_tree():
 	tool_overlay.params_canceled.connect(_on_params_canceled)
 	tool_overlay.param_changed.connect(_on_param_changed)
 	tool_overlay.edit_params_requested.connect(_on_edit_params_requested)
-	tool_overlay.grid_setting_changed.connect(_on_grid_ui_setting)
-	tool_overlay.grid_reset_pressed.connect(_on_grid_reset)
-	tool_overlay.sync_grid(grid)
 	tool_overlay.display_setting_changed.connect(_on_display_setting_changed)
 	tool_overlay.display_reset_pressed.connect(_on_display_reset)
 	_load_display_settings()
@@ -364,8 +351,6 @@ func _exit_tree():
 		_cursor_extents_label = null
 	# Remove custom type
 	remove_custom_type("MBMesh")
-	if grid_view != null:
-		grid_view.detach_scenario()
 
 # ==============================================================================
 # 3D Editor UI Placement
@@ -581,6 +566,17 @@ func _knife_weld_tolerance(md: MBMeshData) -> float:
 ## `test_navigating` exists because headless tests cannot press a mouse button.
 var test_navigating: bool = false
 
+## Toolbar Snap button: same switch as the Y shortcut.
+func _on_toolbar_snap_toggled(enabled: bool) -> void:
+	grid.enabled = enabled
+	if logger:
+		logger.info("tools", "Snapping %s (toolbar)" % ("ON" if enabled else "OFF"))
+
+## Keeps the toolbar button in step with the snapping state (Y, plugin logic).
+func _sync_snap_button() -> void:
+	if toolbar != null:
+		toolbar.sync_snap(grid.enabled)
+
 func _is_navigating_view() -> bool:
 	if test_navigating:
 		return true
@@ -590,9 +586,6 @@ func _is_navigating_view() -> bool:
 func _handle_action_key(key_event: InputEventKey) -> int:
 	if _is_navigating_view():
 		return AFTER_GUI_INPUT_PASS
-	var grid_result := _handle_grid_action_key(key_event)
-	if grid_result == AFTER_GUI_INPUT_STOP:
-		return AFTER_GUI_INPUT_STOP
 	var action := MBActions.action_for(key_event, _settings)
 	if action == &"":
 		return AFTER_GUI_INPUT_PASS
@@ -622,6 +615,13 @@ func _handle_action_key(key_event: InputEventKey) -> int:
 			if not node_selected:
 				return AFTER_GUI_INPUT_PASS
 			editor.select_mode = MBEditor.SelectMode.OBJECT
+		&"toggle_snap":
+			if not (editing or editor.active_mesh != null or shape_creator.is_active() or ngon_drawer.is_active()):
+				return AFTER_GUI_INPUT_PASS
+			grid.enabled = not grid.enabled
+			_sync_snap_button()
+			if logger:
+				logger.info("tools", "Snapping %s" % ("ON" if grid.enabled else "OFF"))
 		&"toggle_xray":
 			if not node_selected:
 				return AFTER_GUI_INPUT_PASS
@@ -720,96 +720,10 @@ func _handle_action_key(key_event: InputEventKey) -> int:
 			_on_operation_requested(MBActions.OP_ACTION_TO_OPERATION[action])
 	return AFTER_GUI_INPUT_STOP
 
-## Grid + snap toggles work in EVERY context (nothing selected, mid-drag of
-## a new shape, editing) — the grid must be adjustable before and during
-## use. toggle_snap is the exception: with no MeshBuilder context at all the
-## engine's own Use Snap button keeps its Y binding.
-func _handle_grid_action_key(key_event: InputEventKey) -> int:
-	var action := MBActions.action_for(key_event, _settings)
-	if action == &"":
-		return AFTER_GUI_INPUT_PASS
-	if action == &"toggle_snap":
-		if editor.is_editing() or editor.active_mesh != null or shape_creator.is_active() or ngon_drawer.is_active():
-			grid.enabled = not grid.enabled
-			return AFTER_GUI_INPUT_STOP
-		return AFTER_GUI_INPUT_PASS
-	elif action == &"toggle_on_grid":
-		grid.draw_on_grid = not grid.draw_on_grid
-	elif action == &"toggle_grid":
-		grid.show_grid = not grid.show_grid
-	elif action == &"subdiv_increase":
-		grid.subdivisions_up()
-	elif action == &"subdiv_decrease":
-		grid.subdivisions_down()
-	elif action == &"unit_increase":
-		grid.unit_up()
-	elif action == &"unit_decrease":
-		grid.unit_down()
-	elif action == &"grid_raise":
-		grid.raise()
-	elif action == &"grid_lower":
-		grid.lower()
-	elif action == &"grid_reset":
-		grid.reset_origin()
-	elif action == &"obj_toggle_lit":
-		if _selected_state_nodes().is_empty():
-			return AFTER_GUI_INPUT_PASS
-		_toggle_object_lit()
-	elif action == &"obj_toggle_shadows":
-		if _selected_state_nodes().is_empty():
-			return AFTER_GUI_INPUT_PASS
-		_toggle_object_shadow()
-	else:
-		return AFTER_GUI_INPUT_PASS
-	return AFTER_GUI_INPUT_STOP
-func _is_repeatable_grid_key(k: InputEventKey) -> bool:
-	var act := MBActions.action_for(k, _settings)
-	return act == &"grid_raise" or act == &"grid_lower"
-
-
 # ==============================================================================
-# Grid + Snapping (own grid, independent of the engine's 3D grid)
+# Snapping
 # ==============================================================================
 
-## Persisted grid settings (Editor Settings keys; origin/elevation is
-## session-only — a floating grid from yesterday's session would surprise).
-const GRID_SETTING_PREFIX := "meshbuilder/grid/"
-const GRID_SETTING_KEYS := ["enabled", "unit", "subdivisions",
-	"show_grid", "rotate_step_deg"]
-
-func _load_grid_settings() -> void:
-	grid.draw_on_grid = false
-	if _settings == null or not _settings.has_method("has_setting"):
-		return
-	if _settings.has_setting(GRID_SETTING_PREFIX + "draw_on_grid"):
-		_settings.set_setting(GRID_SETTING_PREFIX + "draw_on_grid", false)
-	for key in GRID_SETTING_KEYS:
-		var path: String = GRID_SETTING_PREFIX + key
-		if _settings.has_setting(path):
-			grid.set(key, _settings.get_setting(path))
-	_on_grid_changed()
-func _on_grid_changed() -> void:
-	if _settings != null and _settings.has_method("set_setting"):
-		for key in GRID_SETTING_KEYS:
-			_settings.set_setting(GRID_SETTING_PREFIX + key, grid.get(key))
-	if toolbar != null:
-		toolbar.sync_grid(grid)
-	if tool_overlay != null:
-		tool_overlay.sync_grid(grid)
-	if logger != null:
-		logger.info("grid", "unit=%s subdivs=%d step=%s snap=%s on_grid=%s show=%s elev=%s rot_step=%s" % [
-			str(grid.unit), grid.subdivisions, str(grid.step()), str(grid.enabled),
-			str(grid.draw_on_grid), str(grid.show_grid), str(grid.origin.y),
-			str(grid.rotate_step_deg)])
-	grid_view.mark_dirty()
-	# Object-mode engine snap tracks live grid changes while a MBMesh is
-	# selected (element modes never use it — see _update_editing_context).
-	if editor.active_mesh != null and not editor.is_editing():
-		tool_bridge.apply_engine_snap(grid.step(), grid.rotate_step_deg, grid.enabled)
-
-## Quantizes every selected element's positions onto the world grid
-## (ProBuilder/ProGrids "push to grid"): positions move, indexes unchanged —
-## weld groups keep topology sound, undo is a full-mesh snapshot.
 func _on_snap_selection_to_grid() -> void:
 	if not editor.is_editing() or editor.active_mesh == null:
 		return
@@ -1297,70 +1211,20 @@ func _update_editing_context() -> void:
 			set_xray(true)
 	var editing := editor.is_editing()
 	toolbar.set_editing_active(mesh_selected)
+	_sync_snap_button()
 	tool_overlay.update_visibility()
 	if tool_bridge.is_ready():
+		grid.set_engine_step(tool_bridge.engine_snap_translate())
 		tool_bridge.set_editing_active(editing)
 		if editing:
 			tool_bridge.editor_space = editor.orientation_space
 			tool_bridge.apply_orientation_space(editor.orientation_space)
-		# Grid jurisdiction swap: inside ANY MeshBuilder context (mesh selected
-		# or shape creation armed) the engine's stock grid hides and our cyan
-		# grid draws (MBGridView); in OBJECT mode the engine's own transform
-		# snap also tracks our grid so node-level drags match element drags.
-		var sc_active := shape_creator != null and shape_creator.is_active()
-		var ng_active := ngon_drawer != null and ngon_drawer.is_active()
-		var tw_active := trim_walls_tool != null and trim_walls_tool.is_active()
-		var mb_context := mesh_selected or sc_active or ng_active or tw_active or grid.draw_on_grid or absf(grid.origin.y) > 0.0001
-		var cam3d: Camera3D = null
-		var vp := get_editor_interface().get_editor_viewport_3d(0)
-		if vp != null:
-			cam3d = vp.get_camera_3d()
-		tool_bridge.set_engine_grid_hidden(mb_context, cam3d)
-		if not editing and mesh_selected:
-			tool_bridge.apply_engine_snap(grid.step(), grid.rotate_step_deg, grid.enabled)
-		else:
-			tool_bridge.restore_engine_snap()
 	else:
-		# Bridge-less contexts can't sync engine internals — grid view still
-		# follows the context via _process.
 		pass
 	_update_engine_tool()
 
-## Grid driver, once per editor frame: the grid is drawn on the ACTIVE
-## node's gizmo (MBGridView caches world-space lines; the camera focus +
-## grid settings gate rebuilds), so a redraw is only requested on real
-## staleness — gizmo redraws are the native re-render trigger.
-
 func _process(delta: float) -> void:
 	_refresh_camera_scaled_gizmos()
-	if grid_view == null:
-		return
-	var wants := show_grid_should_draw() and grid.show_grid
-	var vp := get_editor_interface().get_editor_viewport_3d(0)
-	var cam: Camera3D = null
-	if vp != null:
-		cam = vp.get_camera_3d()
-		var w3d := vp.find_world_3d()
-		if w3d != null:
-			var cur_scenario := w3d.get_scenario()
-			if grid_view.get_scenario() != cur_scenario:
-				grid_view.attach_scenario(cur_scenario)
-		if wants:
-			grid_view.update(cam)
-	grid_view.set_visible(wants)
-	if tool_bridge != null and tool_bridge.is_ready():
-		tool_bridge.set_engine_grid_hidden(wants, cam)
-	# ARMED creation cursor: the gizmo path draws the yellow square on a
-	# MBMesh gizmo — which needs a mesh in the scene. With none (fresh
-	# import, first shape not yet placed) the grid_view renders the square
-	# scenario-side instead; with a host, the gizmo drew it and this hides.
-	var armed := (shape_creator != null and shape_creator.state == MBShapeCreator.State.ARMED) \
-		or (ngon_drawer != null and ngon_drawer.state == MBNgonDrawer.State.ARMED)
-	var hover_host: MBMesh = gizmo_plugin.creation_hover_node if gizmo_plugin != null else null
-	var host_drew := hover_host != null and is_instance_valid(hover_host)
-	grid_view.set_creation_cursor(
-		gizmo_plugin.creation_hover_point if gizmo_plugin != null else Vector3.ZERO,
-		armed and not host_drew)
 ## Editor camera position at each node's last camera-driven gizmo refresh.
 var _gizmo_cam_pos: Dictionary = {}  # instance id -> Vector3
 
@@ -1417,75 +1281,7 @@ func _camera_scaled_gizmo_nodes() -> Array[MBMesh]:
 			out.append(n as MBMesh)
 	return out
 
-## The grid renders while any MeshBuilder context is active (a MBMesh is
-## selected — object mode included — or shape creation is armed, or drawing
-## on an elevated/custom grid, or grid settings panel is open).
-func show_grid_should_draw() -> bool:
-	var sc_active := shape_creator != null and shape_creator.is_active()
-	var ng_active := ngon_drawer != null and ngon_drawer.is_active()
-	return editor.active_mesh != null or sc_active or ng_active or grid.draw_on_grid or absf(grid.origin.y) > 0.0001 or _grid_panel_open
-func _attach_grid_view_scenario() -> void:
-	if grid_view == null:
-		return
-	var vp := get_editor_interface().get_editor_viewport_3d(0)
-	if vp != null:
-		vp.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
-		var w3d := vp.find_world_3d()
-		if w3d != null:
-			grid_view.attach_scenario(w3d.get_scenario())
 
-## Grid panel button on the toolbar toggles the overlay's grid section.
-var _grid_panel_open := false
-
-func _on_grid_panel_toggled(open: bool) -> void:
-	_grid_panel_open = open
-	if open:
-		tool_overlay.panel_enabled = true
-		toolbar.set_overlay_pinned(true)
-		tool_overlay.open_grid()
-	else:
-		tool_overlay.close_grid()
-
-## Instant-apply grid edits from the overlay panel (no Apply/Cancel).
-func _on_grid_ui_setting(key: StringName, value: float) -> void:
-	match key:
-		&"enabled":
-			grid.enabled = value > 0.5
-		&"draw_on_grid":
-			grid.draw_on_grid = value > 0.5
-		&"show_grid":
-			grid.show_grid = value > 0.5
-		&"unit":
-			grid.unit = value
-		&"subdivisions":
-			grid.subdivisions = int(value)
-		&"rotate_step_deg":
-			grid.rotate_step_deg = value
-		&"elevation":
-			grid.origin.y = value
-		&"elev_up":
-			grid.raise()
-		&"elev_down":
-			grid.lower()
-
-func _on_grid_reset() -> void:
-	grid.enabled = true
-	grid.draw_on_grid = false
-	grid.show_grid = true
-	grid.unit = 1.0
-	grid.subdivisions = 5
-	grid.rotate_step_deg = 15.0
-	grid.origin = Vector3.ZERO
-	if logger != null:
-		logger.info("grid", "grid settings reset to defaults")
-
-## Keeps the ENGINE's transform gizmo in the right state:
-## - OBJECT mode: our Move/Rotate/Scale drives the whole-node gizmo (the
-##   toolbar's tool buttons must visibly switch the node gizmo there too).
-## - Element mode: WITH a subgizmo selection our tool drives the element
-##   gizmo; with NO selection the engine idles in its SELECT tool — builder
-##   mode must never show the whole-object transform gizmo, and the select
-##   tool is also what makes click-selecting other nodes work natively.
 func _update_engine_tool() -> void:
 	if not tool_bridge.is_ready():
 		return
@@ -1536,8 +1332,6 @@ func _load_display_settings() -> void:
 	var sel_op := 0.25
 	var hov_op := 0.25
 	if _settings != null:
-		if _settings.has_setting("meshbuilder/display/grid_opacity"):
-			grid_op = float(_settings.get_setting("meshbuilder/display/grid_opacity"))
 		if _settings.has_setting("meshbuilder/display/wireframe_opacity"):
 			wire_op = float(_settings.get_setting("meshbuilder/display/wireframe_opacity"))
 		if _settings.has_setting("meshbuilder/display/selection_opacity_v2"):
@@ -1545,14 +1339,11 @@ func _load_display_settings() -> void:
 		if _settings.has_setting("meshbuilder/display/hover_opacity_v2"):
 			hov_op = float(_settings.get_setting("meshbuilder/display/hover_opacity_v2"))
 
-	grid_view.grid_opacity = grid_op
 	gizmo_plugin.apply_display_opacities(wire_op, sel_op, hov_op)
 	tool_overlay.sync_display_settings(grid_op, wire_op, sel_op, hov_op)
 
 func _on_display_setting_changed(setting_name: StringName, value: float) -> void:
 	match setting_name:
-		&"grid_opacity":
-			grid_view.grid_opacity = value
 		&"wireframe_opacity":
 			gizmo_plugin.apply_display_opacities(value, gizmo_plugin.selection_opacity, gizmo_plugin.hover_opacity)
 			if editor.active_mesh != null:
@@ -1572,7 +1363,6 @@ func _on_display_setting_changed(setting_name: StringName, value: float) -> void
 		_settings.set_setting("meshbuilder/display/" + key, value)
 
 func _on_display_reset() -> void:
-	_on_display_setting_changed(&"grid_opacity", 0.7)
 	_on_display_setting_changed(&"wireframe_opacity", 0.7)
 	_on_display_setting_changed(&"selection_opacity", 0.25)
 	_on_display_setting_changed(&"hover_opacity", 0.25)
@@ -2663,10 +2453,6 @@ func _creation_input(camera: Camera3D, event: InputEvent) -> int:
 
 	if event is InputEventKey and event.pressed:
 		var k := event as InputEventKey
-		if not k.echo or _is_repeatable_grid_key(k):
-			if shape_creator.state != MBShapeCreator.State.PARAMS \
-					and _handle_grid_action_key(k) == AFTER_GUI_INPUT_STOP:
-				return AFTER_GUI_INPUT_STOP
 		if shape_creator.state == MBShapeCreator.State.PARAMS:
 			if event.keycode == KEY_ESCAPE:
 				_on_params_canceled()
@@ -2684,20 +2470,12 @@ func _creation_input(camera: Camera3D, event: InputEvent) -> int:
 			_creation_abort("cancelled with Escape")
 			return AFTER_GUI_INPUT_STOP
 	return AFTER_GUI_INPUT_PASS
-## Nearest surface under the cursor: MBMesh faces (world space) with
-## MeshBuilder's grid plane as the fallback, like ProBuilder dragging on the
-## grid. With "Draw on Grid" ON, surface picking is skipped entirely — every
-## new shape is drawn on the (possibly elevated) grid plane. Returns
-## {point, normal} or {} on a miss.
+## Nearest surface under the cursor: MBMesh faces (world space) with the
+## editor grid plane (y = 0) as the fallback. Returns {point, normal} or {} on
+## a miss.
 func _pick_creation_surface(camera: Camera3D, screen_pos: Vector2) -> Dictionary:
 	var ray_o: Vector3 = camera.project_ray_origin(screen_pos)
 	var ray_d: Vector3 = camera.project_ray_normal(screen_pos)
-	if grid.draw_on_grid:
-		var on_grid := MBShapeCreator.ray_plane_intersect(ray_o, ray_d,
-			grid.origin, Vector3.UP)
-		if on_grid != MBShapeCreator.RAY_MISS:
-			return {"point": on_grid, "normal": Vector3.UP}
-		return {}
 	var best_t := INF
 	var best := {}
 	var scene_root := get_editor_interface().get_edited_scene_root()
@@ -2906,7 +2684,7 @@ func _update_creation_hover(camera: Camera3D, screen_pos: Vector2) -> void:
 						best_point = phys_hit["position"]
 						if phys_hit.has("normal"):
 							best_normal = phys_hit["normal"]
-	if grid.draw_on_grid or best_point == Vector3.ZERO:
+	if best_point == Vector3.ZERO:
 		var hit := MBShapeCreator.ray_plane_intersect(ray_o, ray_d, grid.origin, Vector3.UP)
 		if hit != MBShapeCreator.RAY_MISS:
 			best_point = hit
@@ -3355,9 +3133,6 @@ func _ngon_drawer_input(camera: Camera3D, event: InputEvent) -> int:
 		elif k.keycode == KEY_ESCAPE:
 			_ngon_drawer_abort("cancelled with Escape")
 			return AFTER_GUI_INPUT_STOP
-		elif not k.echo or _is_repeatable_grid_key(k):
-			if _handle_grid_action_key(k) == AFTER_GUI_INPUT_STOP:
-				return AFTER_GUI_INPUT_STOP
 
 	return AFTER_GUI_INPUT_PASS
 

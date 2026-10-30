@@ -41,17 +41,8 @@ const ACTIONS: Dictionary = {
 	"tool_move":       { "label": "Tool: Move",             "keys": [[KEY_G, 0, 0, 0]] },
 	"tool_rotate":     { "label": "Tool: Rotate",           "keys": [[KEY_R, 0, 0, 0]] },
 	"tool_scale":      { "label": "Tool: Scale",            "keys": [[KEY_S, 0, 0, 0]] },
-	# Snapping + grid.
+	# Snapping.
 	"toggle_snap":     { "label": "Toggle Snapping",       "keys": [[KEY_Y, 0, 0, 0]] },
-	"toggle_on_grid":  { "label": "Toggle Draw On Grid",   "keys": [[KEY_G, 0, 1, 0]] },
-	"toggle_grid":     { "label": "Toggle Grid Overlay",   "keys": [] },
-	"subdiv_increase": { "label": "Grid: Finer (Subdiv +1)",   "keys": [[KEY_EQUAL, 0, 0, 0]] },
-	"subdiv_decrease": { "label": "Grid: Coarser (Subdiv -1)", "keys": [[KEY_MINUS, 0, 0, 0]] },
-	"unit_increase":   { "label": "Grid: Unit x2",         "keys": [[KEY_EQUAL, 0, 1, 0]] },
-	"unit_decrease":   { "label": "Grid: Unit /2",         "keys": [[KEY_MINUS, 0, 1, 0]] },
-	"grid_raise":      { "label": "Grid: Raise Elevation", "keys": [[KEY_BRACKETRIGHT, 0, 0, 0]] },
-	"grid_lower":      { "label": "Grid: Lower Elevation", "keys": [[KEY_BRACKETLEFT, 0, 0, 0]] },
-	"grid_reset":      { "label": "Grid: Reset Elevation", "keys": [[KEY_BACKSLASH, 0, 0, 0]] },
 	"snap_selection":  { "label": "Snap Selection To Grid", "keys": [] },
 	# Selection actions
 	"select_all":          { "label": "Selection: Select All",         "keys": [] },
@@ -273,21 +264,21 @@ static func action_for(event: InputEvent, settings: Object = null) -> StringName
 			var path := PREFIX + id
 			if settings.has_shortcut(path) and settings.is_shortcut(path, key_event):
 				var act := StringName(id)
-				if not key_event.echo or act == &"grid_raise" or act == &"grid_lower":
+				if not key_event.echo:
 					return act
 		# Fallback: if settings shortcut matching missed due to keycode vs physical_keycode layout mismatch
 		for id: String in ACTIONS:
 			for spec: Array in ACTIONS[id]["keys"]:
 				if _match_default(key_event, spec):
 					var act := StringName(id)
-					if not key_event.echo or act == &"grid_raise" or act == &"grid_lower":
+					if not key_event.echo:
 						return act
 	else:
 		for id: String in ACTIONS:
 			for spec: Array in ACTIONS[id]["keys"]:
 				if _match_default(key_event, spec):
 					var act := StringName(id)
-					if not key_event.echo or act == &"grid_raise" or act == &"grid_lower":
+					if not key_event.echo:
 						return act
 	return &""
 ## Default-table matching: physical keycode (layout-independent), with the

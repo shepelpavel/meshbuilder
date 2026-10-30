@@ -244,16 +244,16 @@ func arm(p_shape_id: StringName) -> void:
 	values = MBShapeParams.get_default_values(p_shape_id)
 	session_values = {}
 
-## Begins the base drag on the surface point/normal under the press. `view_z`
-## is the camera's forward direction — the drag axis seeds from the view so
-## Computes the snapped starting point on a surface when grid snapping is enabled
-## on cardinal surfaces, or returns the un-snapped surface point otherwise.
+## Computes the snapped starting point on a surface when snapping is enabled on
+## cardinal surfaces, or returns the un-snapped surface point otherwise.
 func snap_starting_point(surface_point: Vector3, surface_normal: Vector3) -> Vector3:
 	var n := surface_normal.normalized()
 	if grid != null and grid.enabled and MBGrid.is_cardinal(n):
 		return grid.snap_point_masked(surface_point, n)
 	return surface_point
 
+## Begins the base drag on the surface point/normal under the press. `view_z`
+## is the camera's forward direction — the drag axis seeds from the view so
 ## horizontal drags feel natural on walls too.
 func begin(surface_point: Vector3, surface_normal: Vector3, view_z: Vector3) -> void:
 	state = State.BASE

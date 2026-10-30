@@ -83,20 +83,10 @@ var _use_snap_before_editing: bool = false
 
 ## The engine's 3D grid renders on editor gizmo layer 25; the View > View
 ## Grid menu only toggles this cull bit on the viewport camera
-## (node_3d_editor_viewport.cpp case VIEW_GRID). We drive the same bit.
-const GIZMO_GRID_LAYER := 25
 
-## Camera whose grid cull bit we drive (captured on first hide).
-var _engine_grid_cam: Camera3D = null
-
-## The Snap Settings dialog's spinners (Translate / Rotate / Scale),
-## discovered by label. Written only while OBJECT mode follows our grid.
+## The Snap Settings dialog's spinners (Translate / Rotate / Scale), found by
+## structure. Read-only now: MeshBuilder snaps to the ENGINE's step.
 var _snap_spins: Dictionary = {}
-
-## Engine snap values to restore when a MBMesh context ends.
-var _engine_snap_backup: Dictionary = {}
-var _engine_snap_applied: bool = false
-var _engine_grid_hidden_by_us: bool = false
 
 ## True while apply_orientation_space is pressing the toggle; lets the
 ## `toggled` listener ignore our own programmatic flips.
@@ -173,11 +163,6 @@ func _all_tools_found() -> bool:
 
 ## Releases signal connections and restores all engine buttons to enabled.
 func teardown() -> void:
-	# Never leave the editor with our grid/snap overrides active.
-	restore_engine_snap()
-	if _engine_grid_hidden_by_us:
-		set_engine_grid_hidden(false)
-		_engine_grid_hidden_by_us = false
 	_disconnect_buttons()
 	if _local_coords_btn != null and is_instance_valid(_local_coords_btn):
 		if _local_coords_btn.toggled.is_connected(_on_local_coords_toggled):
@@ -424,31 +409,16 @@ func _on_engine_tool_pressed(path: String) -> void:
 ## (node_3d_editor_viewport.cpp case VIEW_GRID), but reachable from script.
 ## NOTE: the per-layer setter CLI (set_cull_mask_value) refuses layers > 20
 ## ("Render layer number must be between 1 and 20") — the 25-32 editor
-## layers are only reachable through the raw cull_mask property.
-func set_engine_grid_hidden(hidden: bool, cam: Camera3D = null) -> bool:
-	if cam == null:
-		cam = _engine_grid_cam
-	if cam == null or not is_instance_valid(cam):
-		return false
-	_engine_grid_cam = cam
-	var bit: int = 1 << GIZMO_GRID_LAYER
-	if hidden:
-		cam.cull_mask = cam.cull_mask & ~bit
-	else:
-		cam.cull_mask = cam.cull_mask | bit
-	_engine_grid_hidden_by_us = hidden
-	return true
-
-# ==============================================================================
-# Engine snap-value sync (OBJECT mode follows MeshBuilder's grid)
-# ==============================================================================
-
-## Locates controls hanging off the EDITOR's main tree (the engine's popup
-## menus and dialogs are NOT descendants of the Node3DEditor node itself —
-## they live on the editor window tree). The plugin passes the editor base
-## control here; falls back to the Node3DEditor when absent.
 func find_editor_menus(search_root: Node) -> void:
 	_find_snap_dialog(search_root)
+
+## The editor's own translate snap step (Snap Settings dialog), 0 when the
+## dialog has not been found.
+func engine_snap_translate() -> float:
+	var spin: EditorSpinSlider = _snap_spins.get("translate")
+	if spin != null and is_instance_valid(spin):
+		return float(spin.value)
+	return 0.0
 
 ## Finds the Snap Settings dialog's (translate, rotate, scale) spinners.
 ## STRUCTURAL match: a ConfirmationDialog with exactly three EditorSpinSlider
@@ -519,37 +489,3 @@ func _snap_dialog_ancestors() -> Array:
 ## While a MBMesh is selected in OBJECT mode the engine's transform snap
 ## tracks our grid: values are written into the live snap dialog and
 ## 'confirmed' (the engine's own applier), and the engine's Use Snap state
-## becomes `snap_on`. The user's pre-MeshBuilder values are stored and
-## restored by restore_engine_snap().
-func apply_engine_snap(step: float, rotate_deg: float, snap_on: bool) -> void:
-	if _snap_spins.is_empty():
-		return
-	if not _engine_snap_applied:
-		_engine_snap_backup["translate"] = _snap_spins["translate"].value
-		_engine_snap_backup["rotate"] = _snap_spins["rotate"].value
-		_engine_snap_backup["scale"] = _snap_spins["scale"].value
-		_engine_snap_backup["use_snap"] = _use_snap_btn.button_pressed if _use_snap_btn != null else false
-		_engine_snap_applied = true
-	_snap_spins["translate"].set_value_no_signal(step)
-	_snap_spins["rotate"].set_value_no_signal(rotate_deg)
-	_confirm_snap_spinners()
-	if _use_snap_btn != null and is_instance_valid(_use_snap_btn) \
-			and _use_snap_btn.button_pressed != snap_on:
-		_use_snap_btn.button_pressed = snap_on
-	# Keep MeshBuilder's element-mode semantics unchanged: while editing,
-	# engine snap stays forced off (our layer owns element drags).
-	if editing_active and _use_snap_btn != null and is_instance_valid(_use_snap_btn):
-		if _use_snap_btn.button_pressed:
-			_use_snap_btn.button_pressed = false
-
-## Restores the engine snap values captured before the first apply.
-func restore_engine_snap() -> void:
-	if not _engine_snap_applied or _snap_spins.is_empty():
-		return
-	_snap_spins["translate"].set_value_no_signal(_engine_snap_backup.get("translate", 1.0))
-	_snap_spins["rotate"].set_value_no_signal(_engine_snap_backup.get("rotate", 15.0))
-	_snap_spins["scale"].set_value_no_signal(_engine_snap_backup.get("scale", 10.0))
-	_confirm_snap_spinners()
-	if _use_snap_btn != null and is_instance_valid(_use_snap_btn):
-		_use_snap_btn.button_pressed = _engine_snap_backup.get("use_snap", false)
-	_engine_snap_applied = false

@@ -1430,7 +1430,7 @@ func _apply_texture_drag(node: MBMesh, mesh_data: MBMeshData, ids: PackedInt32Ar
 					angle = total_angle * sign_dir
 
 			if grid != null and grid.enabled and not Input.is_key_pressed(KEY_SHIFT):
-				var r_step := deg_to_rad(grid.rotate_step)
+				var r_step := deg_to_rad(grid.rotate_step_deg)
 				if r_step > 0.001:
 					angle = roundf(angle / r_step) * r_step
 
