@@ -1992,6 +1992,32 @@ func _toggle_model_mirror(cycle_axis: bool) -> void:
 
 ## Bakes the live mirror into real geometry (the modifier then switches off,
 ## since the reflection is now ordinary faces you can edit).
+## Removes the baked half and switches the live modifier back on, so the mesh
+## returns to "half + Mirror Model" exactly as before the Apply.
+func _unbake_model_mirror(mesh: MBMesh, data: MBMeshData) -> void:
+	var before := MBCommand.copy_mesh_data(data)
+	var res := MBMeshOps.unbake_mirror(data)
+	if not res.get("ok", false):
+		_op_hint("Mirror apply: %s" % String(res.get("error", "failed")).replace("Mirror apply: ", ""))
+		return
+	data.mirror_enabled = true
+	var after := MBCommand.copy_mesh_data(data)
+	var undo := get_undo_redo()
+	if undo != null:
+		undo.create_action("Unbake Mirror", UndoRedo.MERGE_DISABLE, mesh)
+		undo.add_do_method(self, "_restore_mesh_snapshot", mesh.get_instance_id(), after)
+		undo.add_undo_method(self, "_restore_mesh_snapshot", mesh.get_instance_id(), before)
+		undo.commit_action()
+	if editor.selection != null:
+		editor.selection.clear_all()
+	mesh.rebuild()
+	mesh.update_gizmos()
+	if toolbar != null:
+		toolbar._on_selection_info_changed()
+	_op_hint("Mirror unbaked: %d face(s) removed, Mirror Model is on again" % int(res.get("removed", 0)))
+	if logger:
+		logger.info("mesh_ops", "Mirror unbaked: removed %d face(s)" % int(res.get("removed", 0)))
+
 func _apply_model_mirror() -> void:
 	var mesh := editor.active_mesh
 	if mesh == null or mesh.mb_mesh_data == null:
@@ -2005,6 +2031,12 @@ func _apply_model_mirror() -> void:
 			break
 	if not data.mirror_enabled and not has_baked:
 		_op_hint("Mirror apply: turn Mirror Model on first")
+		return
+
+	# Toggle: pressed ON bakes the reflection into faces, pressed OFF unbakes it
+	# and hands the half back to the live modifier.
+	if has_baked:
+		_unbake_model_mirror(mesh, data)
 		return
 
 	var before := MBCommand.copy_mesh_data(data)

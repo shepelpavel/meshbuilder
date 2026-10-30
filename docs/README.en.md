@@ -97,9 +97,11 @@ beveled at all.
 - **Mirror Model** — a live mirror (Blender's Mirror modifier): model one half and the render builds the
   reflection across the object's origin; the stored geometry never changes, the reflected half is display
   only. Click toggles it, **Shift+click** switches the axis X / Y / Z. One undo step.
-- **Apply Mirror** — bakes the reflection into real geometry: the half stays editable and the copy becomes
-  ordinary faces (the modifier switches off). Every press re-bakes — the previous reflection is deleted
-  and rebuilt from the current half, so copies never stack.
+- **Apply Mirror** is a toggle: press to bake the reflection into real faces (the half stays editable and
+  the modifier switches off), press again to delete the baked faces and hand the half back to the live
+  modifier. Re-baking always rebuilds the copy from the current half, so copies never stack. The copy
+  inherits everything from the source face: contour shape (a quad stays a quad), UVs, tiling
+  rotation/scale, smoothing group and material.
 - **Merge Objects** welds selected `MBMesh` nodes, **Mirror** bakes a mirrored copy of the geometry across X, **Center Pivot** moves the
   pivot to the centre, **Freeze Transform** bakes the transform into the geometry.
 - **MeshBuilderize** converts a `MeshInstance3D` or a `CSG` node into an editable `MBMesh`.

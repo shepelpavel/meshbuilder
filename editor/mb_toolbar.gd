@@ -229,7 +229,9 @@ func _build_ui() -> void:
 	_make_op_button("Mirror", "mirror_object", "Mirror object geometry across X", "icon_mirror.svg")
 	_btn_mirror_model = _make_mirror_model_button()
 	_btn_mirror_apply = _make_op_button("Apply Mirror", "mirror_apply",
-		"bake the mirror into real geometry (the modifier switches off)", "icon_mirror_apply.svg")
+		"Apply Mirror: press to bake the reflection into real geometry (the modifier switches off), press again to unbake and hand the half back to the modifier",
+		"icon_mirror_apply.svg")
+	_btn_mirror_apply.toggle_mode = true
 	_make_op_button("Center Pivot", "center_pivot", "Center pivot to bounding box", "icon_center_pivot.svg")
 	_make_op_button("Freeze Xform", "freeze_transform", "Freeze transform into vertex positions", "icon_freeze_transform.svg")
 	var p_btn := _make_op_button("MeshBuilderize", "meshbuilderize", "Convert selected MeshInstance3D or CSG to editable MBMesh", "icon_meshbuilderize.svg")
@@ -607,14 +609,16 @@ func _on_selection_info_changed(_arg = null) -> void:
 		_op_buttons["mirror_object"].disabled = not has_mesh
 	if _btn_mirror_apply != null:
 		var can_apply: bool = false
+		var baked: bool = false
 		if has_mesh and editor.active_mesh.mb_mesh_data != null:
 			can_apply = editor.active_mesh.mb_mesh_data.mirror_enabled
-			if not can_apply:
-				for f in editor.active_mesh.mb_mesh_data.faces:
-					if f != null and f.mirror_copy:
-						can_apply = true
-						break
+			for f in editor.active_mesh.mb_mesh_data.faces:
+				if f != null and f.mirror_copy:
+					baked = true
+					break
+			can_apply = can_apply or baked
 		_btn_mirror_apply.disabled = not can_apply
+		_btn_mirror_apply.set_pressed_no_signal(baked)
 	if _btn_mirror_model != null:
 		_btn_mirror_model.disabled = not has_mesh
 		var mirrored: bool = has_mesh and editor.active_mesh.mb_mesh_data != null \

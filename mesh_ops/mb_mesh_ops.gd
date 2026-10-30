@@ -587,6 +587,28 @@ static func count_t_junctions(mesh_data: MBMeshData, eps: float = 0.0015) -> int
 	return hits
 
 ## Bakes a mirror modifier into real geometry: every face gets a reflected
+## Removes the baked reflection (faces flagged `mirror_copy`), leaving the
+## original half — the inverse of bake_mirror, used when the Apply toggle is
+## pressed off. Returns how many faces were removed.
+static func unbake_mirror(mesh_data: MBMeshData) -> Dictionary:
+	if mesh_data == null or mesh_data.faces.is_empty():
+		return _fail("Mirror apply: no mesh data")
+	var kept: Array[MBFace] = []
+	var removed := 0
+	for face in mesh_data.faces:
+		if face != null and face.mirror_copy:
+			removed += 1
+			continue
+		if face != null:
+			kept.append(face)
+	if removed == 0:
+		return _fail("Mirror apply: nothing is baked")
+	if kept.is_empty():
+		return _fail("Mirror apply: that is the whole mesh")
+	mesh_data.faces = kept
+	_rebuild_topology(mesh_data)
+	return {"ok": true, "removed": removed}
+
 ## twin (positions flipped on `axis` about the origin, winding swapped back,
 ## UVs/materials copied), so the reflected half becomes ordinary editable
 ## geometry. Returns how many faces were added.
@@ -621,13 +643,20 @@ static func bake_mirror(mesh_data: MBMeshData, axis: int) -> Dictionary:
 		var idxs := face.get_indexes()
 		if idxs.size() < 3:
 			continue
+		# ONE new position per source corner, reused by every triangle that
+		# touches it. Per-index copies broke the shared edge between a quad's two
+		# triangles (same place, different indices), so the mirrored face came out
+		# as loose triangles instead of the quad it was.
 		var mirrored := PackedInt32Array()
 		mirrored.resize(idxs.size())
+		var corner_map := {}
 		for i in idxs.size():
 			var src: int = idxs[i]
-			var pos: Vector3 = mesh_data.positions[src]
-			pos[axis_i] = -pos[axis_i]
-			mirrored[i] = _dup_position_at(mesh_data, pos, src)
+			if not corner_map.has(src):
+				var pos: Vector3 = mesh_data.positions[src]
+				pos[axis_i] = -pos[axis_i]
+				corner_map[src] = _dup_position_at(mesh_data, pos, src)
+			mirrored[i] = corner_map[src]
 
 		# A reflection flips handedness: swap each triangle's last two corners.
 		var tris := PackedInt32Array()
@@ -637,11 +666,16 @@ static func bake_mirror(mesh_data: MBMeshData, axis: int) -> Dictionary:
 			tris[i + 1] = mirrored[i + 2]
 			tris[i + 2] = mirrored[i + 1]
 
-		var twin := MBFace.new(tris)
-		twin.submesh_index = face.submesh_index
-		twin.manual_uv = face.manual_uv
+		# Start from a copy of the source face so EVERY setting rides along
+		# (UV offset/rotation/scale/flip/swap/fill/anchor, smoothing, submesh,
+		# texture/element group), then swap in the mirrored triangles. UVs are
+		# copied per position by _dup_position_at, and manual_uv keeps the
+		# projection from re-writing them — re-projecting was why the baked side
+		# looked nothing like the original.
+		var twin := face.duplicate_face()
+		twin.set_indexes(tris)
+		twin.manual_uv = true
 		twin.mirror_copy = true
-		MBUv.apply_face_uvs(mesh_data, twin)
 		added.append(twin)
 
 	if added.is_empty():
