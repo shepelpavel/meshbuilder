@@ -42,7 +42,6 @@ signal shape_requested(shape_id: StringName)
 signal operation_requested(op_name: String)
 
 ## Emitted when the user asks to re-edit the selected mesh's shape params.
-signal trim_walls_requested
 
 ## Emitted when the user toggles the overlay panel pin.
 signal overlay_toggled(pinned: bool)
@@ -93,7 +92,6 @@ var _btn_face: Button
 var _btn_texture: Button
 var _btn_space: Button
 var _btn_new_shape: MenuButton
-var _btn_trim_walls: Button
 var _btn_merge_by_distance: Button
 var _btn_overlay: Button
 var _btn_recover_overlay: Button
@@ -294,15 +292,6 @@ func _build_ui() -> void:
 
 
 
-	_btn_trim_walls = Button.new()
-	_btn_trim_walls.name = "TrimWalls"
-	_btn_trim_walls.icon = _load_icon("icon_trim_walls.svg")
-	if _btn_trim_walls.icon == null:
-		_btn_trim_walls.text = "Trim Walls"
-	_btn_trim_walls.flat = true
-	_btn_trim_walls.focus_mode = Control.FOCUS_NONE
-	_btn_trim_walls.tooltip_text = "Trim Walls: click wall faces to sweep mitred trim along them (teal hover, amber chosen; Enter / double-click applies, Esc cancels)"
-	_btn_trim_walls.pressed.connect(func(): trim_walls_requested.emit())
 
 	# Overlay panel group
 	_btn_overlay = Button.new()
@@ -390,7 +379,7 @@ func _update_row_layout() -> void:
 			_op_buttons["weld_vertices"], _op_buttons["detach_faces"],
 		],
 	])
-	# Row 3: creation, object ops, CSG, trim, panels.
+	# Row 3: creation, object ops and CSG.
 	_add_row([
 		[_btn_new_shape],
 		[
@@ -399,7 +388,6 @@ func _update_row_layout() -> void:
 		],
 		[_btn_merge_by_distance],
 		[_op_buttons["csg_union"], _op_buttons["csg_subtract"], _op_buttons["csg_intersect"]],
-		[_btn_trim_walls],
 		[_btn_materials, _btn_uv_editor, _btn_overlay, _btn_recover_overlay, _btn_settings],
 	])
 

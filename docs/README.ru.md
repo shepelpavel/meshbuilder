@@ -31,7 +31,6 @@ MeshBuilder превращает 3D-вьюпорт редактора Godot в �
 |---|---|
 | 1 | режимы (Object / Vertex / Edge / Face / Texture), Move / Rotate / Scale, переключение Space, операции выделения, Auto Smooth |
 | 2 | V-Snap, Soft (пропорциональная правка) и радиус, Lit / Shadow / X-Ray, операции меша (Extrude, Inset, Bevel, Subdiv, Merge, Del, Knife, Loop Cut, Connect, Bridge, Tunnel, Fill Hole, Weld, Detach) |
-| 3 | New Shape (все примитивы, включая N-Gon), объектные операции (Merge Objects, Mirror, Center Pivot, Freeze Xform, MeshBuilderize), Merge by Dist, CSG (Union / Subtract / Intersect), Trim Walls, кнопки панелей |
 
 Панели — отдельные вкладки внизу: тулбар открыт при старте, `Materials` и `UV Editor` раскрываются
 кнопками третьего ряда.
@@ -39,7 +38,6 @@ MeshBuilder превращает 3D-вьюпорт редактора Godot в �
 ## Создание геометрии
 
 **13 примитивов:** cube, stair, curved stair, prism, cylinder, plane, door, pipe, cone, arch, sphere,
-torus, n-gon — плюс **Trim Walls** (плинтусы/молдинги по стенам).
 
 - **New Shape** в тулбаре → выбрать фигуру → тянуть основание по любой поверхности → движение мыши
   задаёт высоту → клик подтверждает. `Ctrl` фиксирует направление, `Esc` отменяет.

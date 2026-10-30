@@ -96,13 +96,6 @@ var ngon_drawer: MBNgonDrawer = null
 var creation_hover_node: MBMesh = null
 var creation_hover_face: int = -1
 
-# Trim Walls session: teal hover face + amber chosen faces (the plugin
-# mirrors MBTrimWallsTool state into these each change).
-var trim_walls_session: bool = false
-var trim_walls_hover_node: MBMesh = null
-var trim_walls_hover_face: int = -1
-var trim_walls_chosen: Array[Dictionary] = []
-
 ## The surface point under the cursor during creation (for the ARMED-stage
 ## vertex square under the mouse).
 var creation_hover_point: Vector3 = Vector3.ZERO
@@ -495,12 +488,6 @@ func _redraw(gizmo) -> void:
 	# the element overlays must stay visible underneath.
 	if ngon_drawer != null and ngon_drawer.is_active() and creation_hover_node == node:
 		_draw_creation_hover(gizmo, mesh_data, creation_hover_face)
-
-	# Trim Walls session: teal hover + amber chosen on the picked walls.
-	if trim_walls_session:
-		var drew := _draw_trim_walls_highlights(gizmo, mesh_data, node)
-		if drew:
-			return
 
 	if not _node_selected(node):
 		if node.show_collider and node.collider_type != MBMesh.ColliderType.OFF:
@@ -1048,8 +1035,8 @@ func _add_vert_squares(gizmo, to_local: Transform3D, world_points: PackedVector3
 ## overlays draw thick and on top (visible through geometry).
 func _draw_creation_preview(gizmo, mesh_data: MBMeshData, creator: MBShapeCreator) -> void:
 	# PARAMS: the shape is placed and the adjust modal is open — the cyan
-	# base/bounds box only buries the actual trim/shape the user is trying
-	# to see. Draw nothing but the mesh.
+	# base/bounds box only buries the shape the user is trying to see. Draw
+	# nothing but the mesh.
 	if creator.state == MBShapeCreator.State.PARAMS:
 		return
 	_creation_materials()
@@ -1147,76 +1134,8 @@ func _draw_creation_hover(gizmo, mesh_data: MBMeshData, face_index: int) -> void
 			var to_local := node.global_transform.affine_inverse()
 			_add_vert_squares(gizmo, to_local, PackedVector3Array([creation_hover_point]))
 
-## Trim Walls session highlights: teal fill under the cursor, amber on every
-## chosen wall face. Returns true when this node is session-relevant (the
-## caller early-outs so element overlays don't fight the session colors).
-func _draw_trim_walls_highlights(gizmo, mesh_data: MBMeshData, node: MBMesh) -> bool:
-	var is_hover := trim_walls_hover_node == node and trim_walls_hover_face >= 0
-	var chosen_faces := PackedInt32Array()
-	for w in trim_walls_chosen:
-		if w.get("mesh") == node:
-			chosen_faces.append(int(w.get("face", -1)))
-	if not is_hover and chosen_faces.is_empty():
-		return false
-	if node == null:
-		return false
-	var fill_offset := _live_fill_offset
-	if is_hover:
-		var hover_fill := element_editor.build_face_fill_mesh(mesh_data, trim_walls_hover_face, fill_offset)
-		if hover_fill != null:
-			gizmo.add_mesh(hover_fill, _trim_walls_material(true))
-	if not chosen_faces.is_empty():
-		var multi := element_editor.build_face_fill_mesh_multi(mesh_data, chosen_faces, fill_offset)
-		if multi != null:
-			gizmo.add_mesh(multi, _trim_walls_material(false))
-	# Strokes read over the fills at any zoom.
-	if is_hover:
-		var stroke_pts := PackedVector3Array()
-		var poly := mesh_data.get_face_outline_positions(trim_walls_hover_face)
-		# get_face_positions is already LOCAL (gizmo space) - pushing it
-		# through the inverse node transform displaced the outline off the
-		# face entirely.
-		for i in range(poly.size()):
-			stroke_pts.append(poly[i])
-			stroke_pts.append(poly[(i + 1) % poly.size()])
-		if stroke_pts.size() >= 2:
-			_add_thick_lines(gizmo, stroke_pts, _trim_walls_material(true, true), _live_stroke_offset, 1)
-	return true
-
-var _trim_walls_hover_mat: StandardMaterial3D = null
-var _trim_walls_hover_stroke_mat: StandardMaterial3D = null
-var _trim_walls_chosen_mat: StandardMaterial3D = null
-
-const TRIM_WALLS_TEAL := Color(0.0, 0.85, 0.75, 0.4)
-const TRIM_WALLS_TEAL_STROKE := Color(0.2, 1.0, 0.9, 0.9)
-const TRIM_WALLS_AMBER := Color(1.0, 0.65, 0.1, 0.14)
-
-func _trim_walls_material(hover: bool, stroke := false) -> StandardMaterial3D:
-	if hover and stroke:
-		if _trim_walls_hover_stroke_mat == null:
-			_trim_walls_hover_stroke_mat = StandardMaterial3D.new()
-			_trim_walls_hover_stroke_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-			_trim_walls_hover_stroke_mat.albedo_color = TRIM_WALLS_TEAL_STROKE
-			_trim_walls_hover_stroke_mat.no_depth_test = true
-		return _trim_walls_hover_stroke_mat
-	if hover:
-		if _trim_walls_hover_mat == null:
-			_trim_walls_hover_mat = StandardMaterial3D.new()
-			_trim_walls_hover_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-			_trim_walls_hover_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-			_trim_walls_hover_mat.albedo_color = TRIM_WALLS_TEAL
-			_trim_walls_hover_mat.no_depth_test = true
-		return _trim_walls_hover_mat
-	if _trim_walls_chosen_mat == null:
-		_trim_walls_chosen_mat = StandardMaterial3D.new()
-		_trim_walls_chosen_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		_trim_walls_chosen_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		_trim_walls_chosen_mat.albedo_color = TRIM_WALLS_AMBER
-		# Chosen faces stay DEPTH-TESTED and dim: a see-through amber wall
-		# drowns the scene (the "orange highlights are distracting" report).
-	return _trim_walls_chosen_mat
-
-## Draws the polygon vertices, connecting lines, and live line to cursor for Knife / N-Gon drawing.
+## N-Gon / knife session overlay: placed points, the pending segment and the
+## live cursor marker.
 func _draw_ngon_drawer_overlay(gizmo, mesh_data: MBMeshData, drawer: MBNgonDrawer) -> void:
 	_creation_materials()
 	var node := gizmo.get_node_3d() as Node3D
