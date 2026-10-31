@@ -24,86 +24,64 @@ static func set_smoothing_group(mesh_data: MBMeshData, faces: PackedInt32Array, 
 static func clear_smoothing_groups(mesh_data: MBMeshData, faces: PackedInt32Array) -> void:
 	set_smoothing_group(mesh_data, faces, 0)
 
-## Automatically clusters faces into smooth groups based on dihedral angle threshold.
-## Adjacent faces whose angle between normals <= threshold_deg receive the same smoothing group.
-## Returns the number of smooth groups generated.
-static func auto_smooth(mesh_data: MBMeshData, threshold_deg: float = 45.0) -> int:
-	if mesh_data == null or mesh_data.faces.is_empty():
-		return 0
-
-	var lookup := mesh_data.get_shared_vertex_lookup()
-	var face_count := mesh_data.faces.size()
-
-	# Compute normals
-	var face_normals: Array[Vector3] = []
-	face_normals.resize(face_count)
-	for fi in range(face_count):
-		var f: MBFace = mesh_data.faces[fi]
-		if f == null:
-			face_normals[fi] = Vector3.UP
-		else:
-			face_normals[fi] = MBMath.normal_from_positions(mesh_data.positions, f.get_indexes()).normalized()
-
-	# Edge to faces adjacency
-	var edge_to_faces: Dictionary = {}
-	for fi in range(face_count):
-		var f: MBFace = mesh_data.faces[fi]
-		if f == null:
+## Marks the selected EDGES sharp (or clears the mark). A sharp edge is never
+## crossed by Auto Smooth and the faces on its sides never average normals
+## through it, whatever the dihedral angle says. Returns true when the mark is ON
+## afterwards.
+static func set_edges_sharp(mesh_data: MBMeshData, edges: Array[MBEdge], value: bool) -> bool:
+	if mesh_data == null or edges.is_empty():
+		return false
+	for e in edges:
+		if e == null or not e.is_valid():
 			continue
-		for e in f.get_edges():
-			var ca: int = lookup.get(e.a, e.a)
-			var cb: int = lookup.get(e.b, e.b)
-			var key := Vector2i(mini(ca, cb), maxi(ca, cb))
-			if not edge_to_faces.has(key):
-				edge_to_faces[key] = []
-			edge_to_faces[key].append(fi)
-
-	var visited: Dictionary = {}
-	var cluster_id := 1
-
-	for fi in range(face_count):
-		if visited.has(fi) or mesh_data.faces[fi] == null:
-			continue
-
-		var cluster: Array[int] = []
-		var queue: Array[int] = [fi]
-		visited[fi] = true
-
-		while not queue.is_empty():
-			var curr: int = queue.pop_front()
-			cluster.append(curr)
-			var curr_f: MBFace = mesh_data.faces[curr]
-			var curr_n: Vector3 = face_normals[curr]
-
-			for e in curr_f.get_edges():
-				var ca: int = lookup.get(e.a, e.a)
-				var cb: int = lookup.get(e.b, e.b)
-				var key := Vector2i(mini(ca, cb), maxi(ca, cb))
-				if not edge_to_faces.has(key):
-					continue
-				for neighbor in edge_to_faces[key]:
-					if visited.has(neighbor) or mesh_data.faces[neighbor] == null:
-						continue
-					var neighbor_n: Vector3 = face_normals[neighbor]
-					var angle: float = rad_to_deg(curr_n.angle_to(neighbor_n))
-					if angle <= threshold_deg:
-						visited[neighbor] = true
-						queue.append(neighbor)
-
-		# If cluster has >= 2 faces, assign smoothing group 1..30
-		if cluster.size() >= 2:
-			var assigned_group: int = ((cluster_id - 1) % MAX_GROUP) + 1
-			for c_fi in cluster:
-				mesh_data.faces[c_fi].smoothing_group = assigned_group
-			cluster_id += 1
-		else:
-			mesh_data.faces[fi].smoothing_group = 0
-
+		mesh_data.set_sharp_edge(e.a, e.b, value)
 	mesh_data.calculate_normals()
 	mesh_data.shape_edited = true
-	return cluster_id - 1
+	return value
 
-## Generates preview line segments for vertex/face normals [start, end, start, end, ...].
+## True when AT LEAST ONE of the given edges carries the sharp mark. The Sharp
+## button uses this to behave like a real toggle: a mixed selection (some marked,
+## some not) gets its marks CLEARED, so pressing the button twice always ends with
+## no marks — never with "I pressed it again and it stayed sharp".
+static func any_edge_sharp(mesh_data: MBMeshData, edges: Array[MBEdge]) -> bool:
+	if mesh_data == null or edges.is_empty():
+		return false
+	var keys := mesh_data.sharp_edge_keys()
+	for e in edges:
+		if e == null or not e.is_valid():
+			continue
+		if keys.has(MBMeshData.sharp_key(mesh_data.positions[e.a], mesh_data.positions[e.b])):
+			return true
+	return false
+
+## True when every one of the given edges already carries the sharp mark.
+static func all_edges_sharp(mesh_data: MBMeshData, edges: Array[MBEdge]) -> bool:
+	if mesh_data == null or edges.is_empty():
+		return false
+	var keys := mesh_data.sharp_edge_keys()
+	for e in edges:
+		if e == null or not e.is_valid():
+			return false
+		if not keys.has(MBMeshData.sharp_key(mesh_data.positions[e.a], mesh_data.positions[e.b])):
+			return false
+	return true
+
+## Smooths EVERYTHING that is not marked sharp: the whole mesh goes into one
+## smoothing group and the only thing that ever breaks it is a sharp edge. No
+## dihedral-angle threshold any more — a cylinder's side and a bevel ring stay
+## smooth whatever their angle, and creases are something you ask for by hand.
+## Returns 1 when the mesh got the smooth group, 0 when there was nothing to do.
+static func auto_smooth(mesh_data: MBMeshData, _threshold_deg: float = 45.0) -> int:
+	if mesh_data == null or mesh_data.faces.is_empty():
+		return 0
+	for face in mesh_data.faces:
+		if face != null:
+			face.smoothing_group = 1
+	mesh_data.calculate_normals()
+	mesh_data.shape_edited = true
+	return 1
+
+## Generates preview line segments## Generates preview line segments for vertex/face normals [start, end, start, end, ...].
 static func get_normal_preview_lines(mesh_data: MBMeshData, length: float = 0.2) -> PackedVector3Array:
 	if mesh_data == null or mesh_data.positions.is_empty():
 		return PackedVector3Array()

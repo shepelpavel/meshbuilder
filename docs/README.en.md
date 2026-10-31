@@ -30,7 +30,7 @@ The toolbar is three rows of icon groups (groups are separated by vertical lines
 
 | Row | Contents |
 |---|---|
-| 1 | modes (Object / Vertex / Edge / Face / Texture), Move / Rotate / Scale, gizmo Space, selection operations (All, Invert, Grow, Shrink, Coplanar, Similar, Boundary, Loop, Ring), Auto Smooth |
+| 1 | modes (Object / Vertex / Edge / Face / Texture), Move / Rotate / Scale, gizmo Space, selection operations (All, Invert, Grow, Shrink, Coplanar, Similar, Boundary, Loop, Ring), Auto Smooth, **Flat**, **Sharp** |
 | 2 | **Snap**, **V-Snap**, **Soft** with its radius, Lit / Shadow / X-Ray, mesh operations (Extrude, Inset, Bevel, Subdiv, Merge, Del, Knife, Loop Cut, Connect, Bridge, Tunnel, Fill Hole, Weld, Detach) |
 | 3 | **New Shape**, object operations (Merge Objects, Mirror, Mirror Model, Apply Mirror, Center Pivot, Freeze Transform, MeshBuilderize), **Merge by Dist**, CSG (Union / Subtract / Intersect), tabs and view (Materials, UV, Overlay, Reset Panel, Settings) |
 
@@ -107,6 +107,23 @@ beveled at all.
   modifier. Re-baking always rebuilds the copy from the current half, so copies never stack. The copy
   inherits everything from the source face: contour shape (a quad stays a quad), UVs, tiling
   rotation/scale, smoothing group and material.
+- **Sharp** marks the selected **edges** as hard (edge mode, key `2`): the face on one side no longer
+  averages its normals with the face on the other side, whatever the dihedral angle. Pressing it again on
+  edges that are all sharp clears the mark. The mark lives on the edge — stored as a pair of positions, not
+  indices — and is saved with the scene. In edge mode the marked edges are drawn in **orange** instead of
+  cyan.
+- **Auto Smooth** smooths EVERYTHING that is not marked: no angle threshold any more, the whole mesh goes
+  into one group and only edges marked **Sharp** break it (the marks survive a re-run). A marked edge cuts
+  the face fan around its two ends, so the crease appears on that edge only and the neighbours stay
+  smooth.
+- **Flat** is the opposite of Auto Smooth: it clears the smoothing groups so every face goes back to hard
+  shading (on the selected faces when there are some, otherwise on the whole mesh).
+- **Check** inspects the mesh: open edges, non-manifold edges, inconsistent winding (flipped triangles)
+  and self-intersecting triangle pairs. The verdict lands in the viewport banner and the offending faces
+  get selected in face mode so you can see them — that is what a CSG kernel silently rejects.
+- **Fix Winding** turns around the triangles that disagree with their neighbours about which side is
+  outside (a closed solid walks a shared edge in opposite directions). After it the mesh is a proper solid
+  again and booleans work; one undo step.
 - **Merge Objects** welds selected `MBMesh` nodes; **Mirror** bakes a mirrored copy across X in one shot (no
   live mirror involved); **Center Pivot** moves the pivot to the centre; **Freeze Transform** bakes the
   transform into the geometry.
@@ -115,7 +132,13 @@ beveled at all.
   nodes (first — target, second — cutter) **in object mode** (`4`) and hit the button. The result stays on
   the target, the cutter leaves the scene, all one undo step. Meshes must be closed (an open border is
   refused as non-manifold), 256 materials per operand max. In vertex/edge/face mode the selection is
-  deliberately narrowed to one mesh, so multi-select is unavailable there.
+  deliberately narrowed to one mesh, so multi-select is unavailable there. Godot's CSG kernel works in
+  triangles, so after the boolean the plugin rebuilds the quads: sides the cut never touched are quads
+  again, while the shapes the kernel actually produced at the cut stay as they are (triangles and
+  n-gons). "Everything turned into triangles after CSG" no longer happens. Order matters: the first
+  selected mesh is the target, the last one the cutter — but the editor hands the selection over in scene
+  tree order, not click order, so when a subtract leaves nothing the plugin runs the mirrored one
+  (`cutter − target`) and says so in the banner: `Subtract reversed: A − B`.
 - **Lit / Shadow** toggle shading and shadow casting on the selected objects.
 
 ## Materials

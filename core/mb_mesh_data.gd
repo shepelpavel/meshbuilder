@@ -33,6 +33,12 @@ extends Resource
 ## Shared vertex groups — groups of vertex indices that share the same spatial position.
 @export var shared_vertices: Array[MBSharedVertex] = []
 
+## Sharp edges, stored as PAIRS of position indices (a, b, a, b, ...). Sharp
+## lives on the EDGE, the way it does in Blender: the faces on its two sides
+## never average their normals through it, and Auto Smooth never carries
+## smoothing across it — whatever the dihedral angle says.
+@export var sharp_edges: PackedInt32Array = PackedInt32Array()
+
 ## Shared texture groups — groups of vertex indices that share continuous UV coordinates.
 @export var shared_textures: Array[MBSharedVertex] = []
 
@@ -525,35 +531,255 @@ func calculate_normals() -> PackedVector3Array:
 		var lookup := get_shared_vertex_lookup()
 		var group_faces := {}   # group id -> { sg -> { fi } }
 		var group_pos := {}     # group id -> { fi -> position index }
+		# Group corners by POSITION, not by the stored weld list: a mesh cut by the
+		# knife, by CSG or by intersecting faces carries twins of the same point that
+		# never made it into one shared vertex. Grouping by position makes those
+		# twins average together, which is exactly what "smooth" means — otherwise
+		# one face's triangles keep their flat normals and a seam shows up inside a
+		# surface that was never split.
 		for fi in range(face_count):
 			var face: MBFace = faces[fi]
 			if face == null or face.smoothing_group == 0:
 				continue
 			for idx in face.get_distinct_indexes():
-				var gid: int = lookup.get(idx, idx)
+				var gid: Vector3i = _pos_key_v(positions[idx])
 				if not group_faces.has(gid):
 					group_faces[gid] = {}
 				if not group_faces[gid].has(face.smoothing_group):
 					group_faces[gid][face.smoothing_group] = {}
 				group_faces[gid][face.smoothing_group][fi] = true
 				group_pos[gid] = group_pos.get(gid, {})
-				group_pos[gid][fi] = idx
+				# A face can own SEVERAL indices in one weld node (split vertices
+				# from cutting, CSG and mirrored copies): every one of them has to
+				# wear the average, otherwise the leftover twin keeps its flat
+				# triangle normal and a seam shows up inside a single face.
+				if not group_pos[gid].has(fi):
+					group_pos[gid][fi] = []
+				var slots: Array = group_pos[gid][fi]
+				if not slots.has(idx):
+					slots.append(idx)
+				group_pos[gid][fi] = slots
+		# Sharp edges are seams: around every corner the faces form a fan, and the
+		# fan is cut where it crosses a sharp edge. Faces inside one piece share an
+		# average normal (so the edges BETWEEN them stay smooth); the two faces on
+		# the seam itself sit in different pieces and get their own normals. That
+		# is the whole difference from a flat "except this pair" rule, which used
+		# to crease every neighbour of the marked edge as well.
+		var sharp_keys := sharp_edge_keys()
 		for gid in group_faces:
+			var node_pos: Vector3 = Vector3(gid) / 10000.0
 			for sg in group_faces[gid]:
 				var members: Array = group_faces[gid][sg].keys()
-				if members.size() < 2:
+				if members.is_empty():
 					continue
-				var avg := Vector3.ZERO
-				for fi in members:
-					avg += face_normals[fi]
-				if avg.length_squared() < 0.000000000001:
-					continue
-				avg = avg.normalized()
-				for fi in members:
-					normals[int(group_pos[gid][fi])] = avg
+				var pieces: Array = [members]
+				if not sharp_keys.is_empty():
+					pieces = _fan_pieces(members, node_pos, sharp_keys)
+				for piece in pieces:
+					if piece.is_empty():
+						continue
+					var avg := Vector3.ZERO
+					for fi in piece:
+						avg += face_normals[fi]
+					if avg.length_squared() < 0.000000000001:
+						continue
+					avg = avg.normalized()
+					for fi in piece:
+						for slot in group_pos[gid][fi]:
+							normals[int(slot)] = avg
 
 	_normals = normals
 	return normals
+
+## Position key of a single point (Vector3i, quantised like sharp_key).
+func _pos_key_v(p: Vector3) -> Vector3i:
+	return Vector3i(roundi(p.x * 10000.0), roundi(p.y * 10000.0), roundi(p.z * 10000.0))
+
+## The welded corner position of a weld-group id.
+func _node_position(gid: int) -> Vector3:
+	if gid >= 0 and gid < shared_vertices.size() and not shared_vertices[gid].indices.is_empty():
+		return positions[shared_vertices[gid].indices[0]]
+	return Vector3.ZERO
+
+## Splits the faces meeting at one corner into smooth pieces, the way a seam
+## cuts a surface: the faces are sorted by their angle around the corner, the ring
+## is cut where it crosses a sharp edge, and every run between cuts becomes one
+## piece. The piece ends next to a cut are "privately owned" by their side, so the
+## only edges that crease are the ones actually marked — a marked seam line gives
+## a clean split with no stray creases next to it.
+func _fan_pieces(members: Array, node_pos: Vector3, sharp_keys: Dictionary) -> Array:
+	if members.size() < 2:
+		return [members]
+	if members.size() == 2:
+		# Two faces: either they share a sharp edge (two pieces) or they do not.
+		if _faces_share_sharp_edge(int(members[0]), int(members[1]), node_pos, sharp_keys):
+			return [[members[0]], [members[1]]]
+		return [members]
+	# Axis: the average normal around the corner, so the sort happens in the
+	# tangent plane of the surface and not in the world plane.
+	var axis := Vector3.ZERO
+	var centres := {}
+	for fi in members:
+		var face: MBFace = faces[int(fi)]
+		var acc := Vector3.ZERO
+		var idxs := face.get_indexes()
+		var k := 0
+		while k + 2 < idxs.size():
+			acc += (positions[idxs[k + 1]] - positions[idxs[k]]).cross(positions[idxs[k + 2]] - positions[idxs[k]])
+			k += 3
+		axis += acc
+		var c := Vector3.ZERO
+		for ci in face.get_distinct_indexes():
+			c += positions[ci]
+		centres[int(fi)] = c / float(maxi(face.get_distinct_indexes().size(), 1))
+	if axis.length_squared() < 0.000000000001:
+		return [members]
+	axis = axis.normalized()
+	var helper := Vector3.UP if absf(axis.dot(Vector3.UP)) < 0.9 else Vector3.RIGHT
+	var u := (helper - axis * axis.dot(helper)).normalized()
+	var v := axis.cross(u)
+	var angles := {}
+	for fi in members:
+		var d: Vector3 = centres[int(fi)] - node_pos
+		d = d - axis * axis.dot(d)
+		angles[int(fi)] = atan2(d.dot(v), d.dot(u))
+	var order: Array = members.duplicate()
+	order.sort_custom(func(a, b): return angles[int(a)] < angles[int(b)])
+	var count: int = order.size()
+	# Ring position of every face, then the cuts (sharp edges) between neighbours.
+	var cuts: Array = []
+	for i in count:
+		var a: int = order[i]
+		var b: int = order[(i + 1) % count]
+		if _faces_share_sharp_edge(a, b, node_pos, sharp_keys):
+			cuts.append(i)
+	if cuts.is_empty():
+		return [order]
+	if cuts.size() == 1:
+		# One cut: the ring becomes a chain. Split off the far end so the faces on
+		# the marked edge get their own normals and the rest stays one piece.
+		var cut: int = int(cuts[0])
+		var straight: Array = []
+		for i in range(1, count):
+			straight.append(order[(cut + i) % count])
+		var head: Array = [order[cut]]
+		return [head, straight]
+	var out: Array = []
+	for ci in cuts.size():
+		var from_i: int = (int(cuts[ci]) + 1) % count
+		var to_i: int = int(cuts[(ci + 1) % cuts.size()])
+		var piece: Array = []
+		var i: int = from_i
+		while true:
+			piece.append(order[i])
+			if i == to_i:
+				break
+			i = (i + 1) % count
+		if not piece.is_empty():
+			out.append(piece)
+	return out
+
+## True when the two faces share an edge that ends at this corner AND that edge
+## carries the sharp mark.
+func _faces_share_sharp_edge(fi: int, fj: int, node_pos: Vector3, sharp_keys: Dictionary) -> bool:
+	var corner := _pos_key_v(node_pos)
+	var face_a: MBFace = faces[fi]
+	var face_b: MBFace = faces[fj]
+	if face_a == null or face_b == null:
+		return false
+	for ea in face_a.get_edges():
+		if ea.a < 0 or ea.a >= positions.size() or ea.b < 0 or ea.b >= positions.size():
+			continue
+		if _pos_key_v(positions[ea.a]) != corner and _pos_key_v(positions[ea.b]) != corner:
+			continue
+		if not sharp_keys.has(sharp_key(positions[ea.a], positions[ea.b])):
+			continue
+		var key := sharp_key(positions[ea.a], positions[ea.b])
+		for eb in face_b.get_edges():
+			if eb.a < 0 or eb.a >= positions.size() or eb.b < 0 or eb.b >= positions.size():
+				continue
+			if sharp_key(positions[eb.a], positions[eb.b]) == key:
+				return true
+	return false
+
+## Order-independent key of an edge built from POSITIONS, not indices:## Order-independent key of an edge built from POSITIONS, not indices:## Order-independent key of an edge built from POSITIONS, not indices: index
+## pairs die on every topology rebuild (and a welded corner has many indices),
+## while the two points on screen survive a move.
+static func sharp_key(p_a: Vector3, p_b: Vector3) -> String:
+	var ka := Vector3i(roundi(p_a.x * 10000.0), roundi(p_a.y * 10000.0), roundi(p_a.z * 10000.0))
+	var kb := Vector3i(roundi(p_b.x * 10000.0), roundi(p_b.y * 10000.0), roundi(p_b.z * 10000.0))
+	var sa := "%d,%d,%d" % [ka.x, ka.y, ka.z]
+	var sb := "%d,%d,%d" % [kb.x, kb.y, kb.z]
+	return sa + "|" + sb if sa < sb else sb + "|" + sa
+
+func has_sharp_edges() -> bool:
+	return not sharp_edges.is_empty()
+
+## Sharp edges as a set of position keys — what the normal pass and Auto Smooth
+## ask "may smoothing cross here?".
+func sharp_edge_keys() -> Dictionary:
+	var keys := {}
+	var i := 0
+	while i + 1 < sharp_edges.size():
+		var a: int = sharp_edges[i]
+		var b: int = sharp_edges[i + 1]
+		if a >= 0 and a < positions.size() and b >= 0 and b < positions.size():
+			keys[sharp_key(positions[a], positions[b])] = true
+		i += 2
+	return keys
+
+func is_sharp_edge(a: int, b: int) -> bool:
+	if a < 0 or a >= positions.size() or b < 0 or b >= positions.size():
+		return false
+	var key := sharp_key(positions[a], positions[b])
+	for k in sharp_edge_keys():
+		if k == key:
+			return true
+	return false
+
+## Adds or removes the mark on one edge (order of the two corners does not
+## matter). Returns true when the mark is ON afterwards.
+func set_sharp_edge(a: int, b: int, on: bool) -> bool:
+	var key := sharp_key(positions[a], positions[b])
+	var keep := PackedInt32Array()
+	var found := false
+	var i := 0
+	while i + 1 < sharp_edges.size():
+		var ea: int = sharp_edges[i]
+		var eb: int = sharp_edges[i + 1]
+		if ea >= 0 and ea < positions.size() and eb >= 0 and eb < positions.size():
+			if sharp_key(positions[ea], positions[eb]) == key:
+				found = true
+				i += 2
+				continue
+			keep.append(ea)
+			keep.append(eb)
+		i += 2
+	if on and not found:
+		keep.append(a)
+		keep.append(b)
+	sharp_edges = keep
+	return on
+
+func clear_sharp_edges() -> void:
+	sharp_edges = PackedInt32Array()
+
+## Drops pairs whose indices no longer exist — cheap guard after deletes.
+func prune_sharp_edges() -> void:
+	var keep := PackedInt32Array()
+	var i := 0
+	var changed := false
+	while i + 1 < sharp_edges.size():
+		var a: int = sharp_edges[i]
+		var b: int = sharp_edges[i + 1]
+		if a >= 0 and a < positions.size() and b >= 0 and b < positions.size() and a != b:
+			keep.append(a)
+			keep.append(b)
+		else:
+			changed = true
+		i += 2
+	if changed:
+		sharp_edges = keep
 
 ## Returns cached normals, calculating them on demand if empty or size mismatch.
 func get_normals() -> PackedVector3Array:

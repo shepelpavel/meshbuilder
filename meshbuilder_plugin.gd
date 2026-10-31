@@ -66,6 +66,11 @@ var _last_press_msec: int = -10000
 
 ## Toolbar host in the bottom panel and its tab button (the same panel the
 ## 2D UV Editor uses) — keeps the 3D view free of plugin rows.
+## Editor selection in CLICK order. `EditorSelection.get_selected_nodes()` hands
+## the nodes over in scene-tree order, which made "the first selected object is
+## the CSG target" a lie. This follows the selection_changed signal and keeps the
+## order the objects appeared in it.
+var _pick_order: Array[Node] = []
 var _toolbar_panel: Control = null
 var _toolbar_bottom_button: Button = null
 
@@ -793,6 +798,7 @@ func _on_snap_selection_to_grid() -> void:
 # ==============================================================================
 
 func _on_selection_changed() -> void:
+	_refresh_pick_order()
 	var selection: EditorSelection = get_editor_interface().get_selection()
 	var nodes: Array[Node] = selection.get_selected_nodes()
 
@@ -1552,6 +1558,12 @@ func _on_operation_requested(op_name: String) -> void:
 	if op_name == "merge_objects":
 		_perform_merge_objects()
 		return
+	if op_name == "check_mesh":
+		_perform_check_mesh()
+		return
+	if op_name == "fix_winding":
+		_perform_fix_winding()
+		return
 	if op_name == "mirror_object":
 		_perform_mirror_object()
 		return
@@ -1563,6 +1575,12 @@ func _on_operation_requested(op_name: String) -> void:
 		return
 	if op_name == "smooth_auto":
 		_perform_auto_smooth()
+		return
+	if op_name == "flat_shading":
+		_perform_flat_shading()
+		return
+	if op_name == "mark_sharp":
+		_perform_mark_sharp()
 		return
 	if op_name == "mirror_model":
 		_toggle_model_mirror(false)
@@ -2222,16 +2240,53 @@ func _perform_meshbuilderize() -> void:
 			logger.info("plugin", "MeshBuilderized %d node(s) into editable MBMesh" % created_nodes.size())
 
 
+
+## Keeps `_pick_order` in step with the editor selection: nodes that left are
+## dropped, new ones are appended (the engine lists a freshly added node last
+## often enough, and the order only matters for two-object operations anyway).
+func _refresh_pick_order() -> void:
+	var ei := get_editor_interface()
+	if ei == null or ei.get_selection() == null:
+		_pick_order.clear()
+		return
+	var current: Array[Node] = ei.get_selection().get_selected_nodes()
+	var kept: Array[Node] = []
+	for n in _pick_order:
+		if is_instance_valid(n) and current.has(n):
+			kept.append(n)
+	for n in current:
+		if not kept.has(n):
+			kept.append(n)
+	_pick_order = kept
+
+## Selection filtered to nodes a CSG boolean can use, in click order. Falls back
+## to the engine's own order when this plugin never saw the selection change
+## (e.g. the objects were already selected when the plugin loaded).
+func _csg_operands() -> Array[Node]:
+	var out: Array[Node] = []
+	for n in _pick_order:
+		if not is_instance_valid(n):
+			continue
+		if (n is MBMesh and (n as MBMesh).mb_mesh_data != null) or n is CSGShape3D \
+				or (n is MeshInstance3D and not (n is MBMesh)):
+			out.append(n)
+	if out.size() < 2:
+		out.clear()
+		var ei := get_editor_interface()
+		if ei != null and ei.get_selection() != null:
+			for n in ei.get_selection().get_selected_nodes():
+				if (n is MBMesh and (n as MBMesh).mb_mesh_data != null) or n is CSGShape3D \
+						or (n is MeshInstance3D and not (n is MBMesh)):
+					out.append(n)
+	return out
+
 func _perform_csg_boolean(op: MBCsg.BooleanOp) -> void:
 	var ei := get_editor_interface()
 	var selected_nodes: Array[Node] = []
 	if ei != null and ei.get_selection() != null:
 		selected_nodes = ei.get_selection().get_selected_nodes()
 
-	var candidates: Array[Node] = []
-	for n in selected_nodes:
-		if (n is MBMesh and (n as MBMesh).mb_mesh_data != null) or (n is CSGShape3D) or (n is MeshInstance3D and not (n is MBMesh)):
-			candidates.append(n)
+	var candidates: Array[Node] = _csg_operands()
 
 	if candidates.size() < 2:
 		if logger:
@@ -2290,8 +2345,10 @@ func _perform_csg_boolean(op: MBCsg.BooleanOp) -> void:
 
 	var res := MBCsg.perform_boolean(target_mesh.mb_mesh_data, cutter_data, op, rel_xf, get_tree())
 	if not res.get("success", false):
+		var reason: String = String(res.get("error", "Unknown error"))
 		if logger:
-			logger.error("plugin", "CSG Error: %s" % res.get("error", "Unknown error"))
+			logger.error("plugin", "CSG Error: %s (target: %s, cutter: %s)" % [reason, target_node.name, cutter_node.name])
+		_op_hint("%s — target: %s, cutter: %s" % [reason, target_node.name, cutter_node.name])
 		return
 
 	var before_data := MBCommand.copy_mesh_data(target_mesh.mb_mesh_data)
@@ -2363,15 +2420,157 @@ func _restore_csg_mesh(mesh: MBMesh, data: MBMeshData) -> void:
 		mesh.mb_mesh_data.shape_edited = true
 		mesh.rebuild()
 		mesh.update_gizmos()
+## Marks the selected EDGES sharp — Auto Smooth then refuses to cross them and the
+## faces on their sides never average normals through them, whatever the angle.
+## Pressing it again on edges that are all sharp clears the mark.
+func _perform_mark_sharp() -> void:
+	var mesh: MBMesh = editor.active_mesh
+	if mesh == null or mesh.mb_mesh_data == null:
+		_op_hint("Sharp: select an MBMesh first")
+		return
+	var data: MBMeshData = mesh.mb_mesh_data
+	var edges: Array[MBEdge] = []
+	if editor.selection != null:
+		edges = editor.selection.selected_edges.duplicate()
+	if edges.is_empty():
+		_op_hint("Sharp: select edges first (2 = edge mode)")
+		return
+	var already := MBSmoothGroups.any_edge_sharp(data, edges)
+	var before := MBCommand.copy_mesh_data(data)
+	MBSmoothGroups.set_edges_sharp(data, edges, not already)
+	var after := MBCommand.copy_mesh_data(data)
+	var undo := get_undo_redo()
+	if undo != null:
+		undo.create_action("Unsharp Edges" if already else "Sharp Edges", UndoRedo.MERGE_DISABLE, mesh)
+		undo.add_do_method(self, "_restore_mesh_snapshot", mesh.get_instance_id(), after)
+		undo.add_undo_method(self, "_restore_mesh_snapshot", mesh.get_instance_id(), before)
+		undo.commit_action()
+	mesh.rebuild()
+	mesh.update_gizmos()
+	if already:
+		_op_hint("Sharp cleared on %d edge(s) — %d left in the mesh" % [edges.size(), data.sharp_edges.size() / 2])
+	else:
+		_op_hint("Marked %d edge(s) sharp — Auto Smooth keeps these creases" % edges.size())
+	if logger:
+		logger.info("mesh_ops", "Sharp %s on %s: %d edge(s)" % ["cleared" if already else "set", mesh.name, edges.size()])
+
+## The opposite of Auto Smooth: drops every face back to hard shading. Works on
+## the selected faces when there are some, otherwise on the whole mesh.
+func _perform_flat_shading() -> void:
+	var mesh: MBMesh = editor.active_mesh
+	if mesh == null or mesh.mb_mesh_data == null:
+		_op_hint("Flat: select an MBMesh first")
+		return
+	var data: MBMeshData = mesh.mb_mesh_data
+	var faces := PackedInt32Array()
+	if editor.selection != null and editor.select_mode == MBEditor.SelectMode.FACE:
+		faces = editor.selection.selected_faces.duplicate()
+	if faces.is_empty():
+		for fi in data.faces.size():
+			faces.append(fi)
+	var before := MBCommand.copy_mesh_data(data)
+	MBSmoothGroups.clear_smoothing_groups(data, faces)
+	data.shape_edited = true
+	var after := MBCommand.copy_mesh_data(data)
+	var undo := get_undo_redo()
+	if undo != null:
+		undo.create_action("Flat Shading", UndoRedo.MERGE_DISABLE, mesh)
+		undo.add_do_method(self, "_restore_mesh_snapshot", mesh.get_instance_id(), after)
+		undo.add_undo_method(self, "_restore_mesh_snapshot", mesh.get_instance_id(), before)
+		undo.commit_action()
+	mesh.rebuild()
+	mesh.update_gizmos()
+	_op_hint("Flat shading: %d face(s) back to hard edges" % faces.size())
+	if logger:
+		logger.info("mesh_ops", "Flat shading on %s: %d face(s)" % [mesh.name, faces.size()])
+
+## Turns around the triangles that disagree with their neighbours about which
+## side is outside. Godot's CSG kernel silently returns nothing on such a mesh,
+## so this is the "make my prop cuttable" button; one undo step.
+func _perform_fix_winding() -> void:
+	var mesh: MBMesh = editor.active_mesh
+	if mesh == null or mesh.mb_mesh_data == null:
+		_op_hint("Fix Winding: select an MBMesh first")
+		return
+	var data: MBMeshData = mesh.mb_mesh_data
+	var before := MBCommand.copy_mesh_data(data)
+	var res := MBMeshOps.fix_winding(data)
+	if not res.get("ok", false):
+		_op_hint(String(res.get("error", "Fix Winding failed")))
+		return
+	var flipped: int = int(res.get("flipped", 0))
+	if flipped == 0:
+		_op_hint("Fix Winding: triangles already agree — nothing to flip")
+		return
+	var after := MBCommand.copy_mesh_data(data)
+	var undo := get_undo_redo()
+	if undo != null:
+		undo.create_action("Fix Winding", UndoRedo.MERGE_DISABLE, mesh)
+		undo.add_do_method(self, "_restore_mesh_snapshot", mesh.get_instance_id(), after)
+		undo.add_undo_method(self, "_restore_mesh_snapshot", mesh.get_instance_id(), before)
+		undo.commit_action()
+	mesh.rebuild()
+	mesh.update_gizmos()
+	_op_hint("Fix Winding: flipped %d triangle(s) — the mesh is a proper solid now" % flipped)
+	if logger:
+		logger.info("mesh_ops", "Fix Winding on %s: %d triangle(s) flipped" % [mesh.name, flipped])
+
+## Mesh validity report: open edges, non-manifold edges and self-intersecting
+## triangle pairs (a CSG kernel refuses such a mesh, and a hole or a fold is
+## invisible until you try). The offending faces are selected in FACE mode so
+## they light up in the viewport.
+func _perform_check_mesh() -> void:
+	var mesh: MBMesh = editor.active_mesh
+	if mesh == null or mesh.mb_mesh_data == null:
+		_op_hint("Check: select an MBMesh first")
+		return
+	var data: MBMeshData = mesh.mb_mesh_data
+	var res := MBMeshOps.check_mesh(data)
+	if not res.get("ok", false):
+		_op_hint(String(res.get("error", "Check failed")))
+		return
+	var open_edges: int = int(res.get("open_edges", 0))
+	var nonmanifold: int = int(res.get("nonmanifold_edges", 0))
+	var flipped: int = int(res.get("flipped_edges", 0))
+	var overlaps: int = int(res.get("self_intersections", 0))
+	var bad: PackedInt32Array = res.get("bad_faces", PackedInt32Array())
+	var skipped: bool = bool(res.get("skipped", false))
+	var parts: Array[String] = []
+	if open_edges > 0:
+		parts.append("%d open edge(s)" % open_edges)
+	if nonmanifold > 0:
+		parts.append("%d non-manifold edge(s)" % nonmanifold)
+	if flipped > 0:
+		parts.append("%d inconsistent-winding edge(s)" % flipped)
+	if overlaps > 0:
+		parts.append("%d self-intersection(s)" % overlaps)
+	if skipped:
+		parts.append("overlap test skipped (%d triangles is a lot)" % int(res.get("triangles", 0)))
+	var summary := "Mesh check: OK — watertight, consistent winding" if parts.is_empty() else "Mesh check: " + ", ".join(parts)
+	if not bad.is_empty():
+		summary += " — %d face(s) selected" % bad.size()
+	_op_hint(summary)
+	if logger:
+		logger.info("mesh_ops", "%s (%s)" % [summary, mesh.name])
+	if not bad.is_empty():
+		get_editor_interface().get_selection().clear()
+		get_editor_interface().get_selection().add_node(mesh)
+		editor.set_active_mesh(mesh)
+		editor.selection.set_mesh_data(data)
+		editor.set_select_mode(MBEditor.SelectMode.FACE)
+		editor.selection.set_faces(bad)
+		mesh.update_gizmos()
+
 func _perform_auto_smooth() -> void:
 	var mesh := editor.active_mesh
 	if mesh == null or mesh.mb_mesh_data == null:
 		return
-	var count := MBSmoothGroups.auto_smooth(mesh.mb_mesh_data, 45.0)
+	MBSmoothGroups.auto_smooth(mesh.mb_mesh_data)
 	mesh.rebuild()
 	mesh.update_gizmos()
+	_op_hint("Auto Smooth: everything smooth except the %d sharp edge(s)" % (mesh.mb_mesh_data.sharp_edges.size() / 2))
 	if logger:
-		logger.info("plugin", "Auto-smoothed %s: created %d smoothing groups" % [mesh.name, count])
+		logger.info("plugin", "Auto-smoothed %s: sharp edges kept = %d" % [mesh.name, mesh.mb_mesh_data.sharp_edges.size() / 2])
 
 # ==============================================================================
 # Shape Creation (drag base → height → params, ProBuilder-style)

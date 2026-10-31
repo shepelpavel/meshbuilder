@@ -40,6 +40,9 @@ const SOFT_WIREFRAME_COLOR := Color(0.74, 0.78, 0.82, 0.5)
 ## EDGE-mode base wireframe: cyan, drawn slightly thinner than hover/select
 ## strokes (half offset, one stack pair instead of two).
 const EDGE_MODE_WIREFRAME_COLOR := Color(0.2, 0.9, 1.0, 0.7)
+## Edges marked SHARP get their own colour, so you can see the creases you asked
+## for without leaving edge mode.
+const SHARP_EDGE_COLOR := Color(1.0, 0.55, 0.15, 2.0)
 ## Selection is YELLOW (thick strokes for edges / solid-ish fills for faces).
 const SELECTED_COLOR := Color(1.0, 0.9, 0.2, 0.25)
 const FACE_FILL_COLOR := Color(1.0, 0.9, 0.2, 0.25)
@@ -149,6 +152,7 @@ var _live_fill_offset: float = 0.004
 ## it used to be stored and never applied.
 var _wire_soft_material: StandardMaterial3D
 var _wire_edge_material: StandardMaterial3D
+var _sharp_edge_material: StandardMaterial3D
 
 ## Display opacities (multipliers from Settings panel).
 var wireframe_opacity: float = 0.7
@@ -182,6 +186,7 @@ func _init() -> void:
 	create_material("mb_wireframe_edge", EDGE_MODE_WIREFRAME_COLOR, false, false)
 	_wire_soft_material = _make_wire_material(SOFT_WIREFRAME_COLOR)
 	_wire_edge_material = _make_wire_material(EDGE_MODE_WIREFRAME_COLOR)
+	_sharp_edge_material = _make_wire_material(SHARP_EDGE_COLOR)
 	create_material("mb_selected_edge", SELECTED_COLOR, false, true)
 	create_material("mb_hover_edge", HOVER_COLOR, false, true)
 	create_handle_material("mb_center_handle")
@@ -508,32 +513,42 @@ func _redraw(gizmo) -> void:
 	var n_indices: int = edge_indices.size()
 	var positions := mesh_data.positions
 	var pos_size: int = positions.size()
+	var sharp_keys := mesh_data.sharp_edge_keys()
 	var wire_points := PackedVector3Array()
-	wire_points.resize(n_indices)
-	var write_idx: int = 0
+	var sharp_points := PackedVector3Array()
 	for i in range(0, n_indices, 2):
 		var a: int = edge_indices[i]
 		var b: int = edge_indices[i + 1]
 		if a >= 0 and a < pos_size and b >= 0 and b < pos_size:
-			wire_points[write_idx] = positions[a]
-			wire_points[write_idx + 1] = positions[b]
-			write_idx += 2
-	if write_idx < n_indices:
-		wire_points.resize(write_idx)
+			if sharp_keys.has(MBMeshData.sharp_key(positions[a], positions[b])):
+				sharp_points.append(positions[a])
+				sharp_points.append(positions[b])
+			else:
+				wire_points.append(positions[a])
+				wire_points.append(positions[b])
 	if wire_points.size() >= 2:
 		var mode: int = editor.select_mode if editor != null else MBEditor.SelectMode.OBJECT
 		var editing: bool = is_editing_node(node)
 		if editing and mode == MBEditor.SelectMode.EDGE:
 			# EDGE mode base wireframe: slightly thinner cyan (hover/select
 			# strokes drawn on top stay full-thick).
-			_add_thick_lines(gizmo, wire_points, _wire_edge_material, _live_stroke_offset * 0.5, 1)
+			if wire_points.size() >= 2:
+				_add_thick_lines(gizmo, wire_points, _wire_edge_material, _live_stroke_offset * 0.5, 1)
+			if sharp_points.size() >= 2:
+				_add_thick_lines(gizmo, sharp_points, _sharp_edge_material, _live_stroke_offset * 0.5, 1)
 		elif editing and mode in [MBEditor.SelectMode.VERTEX, MBEditor.SelectMode.FACE,
 				MBEditor.SelectMode.TEXTURE]:
 			# VERTEX / FACE: the edges keep a soft light stroke, so the mesh
 			# silhouette never disappears under dots and translucent fills.
-			_add_thick_lines(gizmo, wire_points, _wire_soft_material, _live_stroke_offset * 0.45, 1)
+			if wire_points.size() >= 2:
+				_add_thick_lines(gizmo, wire_points, _wire_soft_material, _live_stroke_offset * 0.45, 1)
+			if sharp_points.size() >= 2:
+				_add_thick_lines(gizmo, sharp_points, _sharp_edge_material, _live_stroke_offset * 0.45, 1)
 		else:
-			gizmo.add_lines(wire_points, get_material("mb_wireframe", gizmo))
+			if wire_points.size() >= 2:
+				gizmo.add_lines(wire_points, get_material("mb_wireframe", gizmo))
+			if sharp_points.size() >= 2:
+				_add_thick_lines(gizmo, sharp_points, _sharp_edge_material, _live_stroke_offset * 0.5, 1)
 
 	if not is_editing_node(node):
 		return

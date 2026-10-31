@@ -1462,7 +1462,583 @@ static func merge_faces(mesh_data: MBMeshData, face_ids: PackedInt32Array) -> Di
 			MBUv.apply_face_uvs(mesh_data, mesh_data.faces[fid])
 	return result
 
-## Welds (merges) the selected shared-vertex groups: every position in the
+## Makes the triangles agree with their neighbours about which side is
+## "outside". A closed solid walks every shared edge in opposite directions from
+## its two triangles; when they walk it the SAME way, one of them is turned
+## inside out — invisible in the viewport, fatal to a CSG kernel (which then
+## refuses the mesh and returns nothing).
+## The walk is per TRIANGLE, not per face: the flips that broke this mesh sit
+## INSIDE one n-gon (a fan whose pieces disagree with each other).
+## Returns {ok, flipped, faces}. After the walk the faces are rebuilt from the
+## triangles, so a repaired n-gon comes back as a clean contour.
+static func fix_winding(mesh_data: MBMeshData) -> Dictionary:
+	if mesh_data == null or mesh_data.faces.is_empty():
+		return {"ok": false, "error": "Fix winding: no mesh data", "flipped": 0, "faces": 0}
+	# Triangle list with its owning face.
+	var tris: Array = []
+	var owner := PackedInt32Array()
+	for fi in mesh_data.faces.size():
+		var face: MBFace = mesh_data.faces[fi]
+		if face == null:
+			continue
+		var idx := face.get_indexes()
+		var k := 0
+		while k + 2 < idx.size():
+			tris.append([idx[k], idx[k + 1], idx[k + 2]])
+			owner.append(fi)
+			k += 3
+	if tris.is_empty():
+		return {"ok": false, "error": "Fix winding: no triangles", "flipped": 0, "faces": 0}
+	# Undirected edge key → triangles using it (with the direction they walk it).
+	var edge_map := {}
+	for ti in tris.size():
+		var t: Array = tris[ti]
+		for pair in [[0, 1], [1, 2], [2, 0]]:
+			var a: int = t[pair[0]]
+			var b: int = t[pair[1]]
+			var key := _edge_key_from_points(_pos_key(mesh_data.positions[a]), _pos_key(mesh_data.positions[b]))
+			if not edge_map.has(key):
+				edge_map[key] = []
+			var list: Array = edge_map[key]
+			list.append({"tri": ti, "a": a, "b": b})
+			edge_map[key] = list
+	var flipped := {}
+	var visited := {}
+	var flipped_count := 0
+	for seed in tris.size():
+		if visited.has(seed):
+			continue
+		var queue: Array[int] = [seed]
+		visited[seed] = true
+		while not queue.is_empty():
+			var cur: int = queue.pop_back()
+			var t: Array = tris[cur]
+			var cur_rev: bool = flipped.has(cur)
+			for pair in [[0, 1], [1, 2], [2, 0]]:
+				var a: int = t[pair[0]]
+				var b: int = t[pair[1]]
+				# The direction this triangle ACTUALLY walks, flips included.
+				var da: int = b if cur_rev else a
+				var db: int = a if cur_rev else b
+				var key := _edge_key_from_points(_pos_key(mesh_data.positions[a]), _pos_key(mesh_data.positions[b]))
+				for rec in edge_map.get(key, []):
+					var other: int = rec["tri"]
+					if other == cur or visited.has(other):
+						continue
+					visited[other] = true
+					var oa: int = rec["a"]
+					var ob: int = rec["b"]
+					var ka := _pos_key(mesh_data.positions[da])
+					var kb := _pos_key(mesh_data.positions[db])
+					var same_dir: bool = _pos_key(mesh_data.positions[oa]) == ka and _pos_key(mesh_data.positions[ob]) == kb
+					if same_dir:
+						flipped[other] = true
+						flipped_count += 1
+					queue.append(other)
+	if flipped_count == 0:
+		return {"ok": true, "flipped": 0, "faces": mesh_data.faces.size()}
+	# Apply the flips and rebuild the faces from their triangles.
+	for ti in flipped:
+		var t: Array = tris[int(ti)]
+		tris[int(ti)] = [t[0], t[2], t[1]]
+	var rebuilt: Array[MBFace] = []
+	var by_face := {}
+	for ti in tris.size():
+		var fi: int = owner[ti]
+		if not by_face.has(fi):
+			by_face[fi] = PackedInt32Array()
+		var arr: PackedInt32Array = by_face[fi]
+		var t: Array = tris[ti]
+		arr.append(t[0])
+		arr.append(t[1])
+		arr.append(t[2])
+		by_face[fi] = arr
+	for fi in mesh_data.faces.size():
+		if not by_face.has(fi):
+			continue
+		var src: MBFace = mesh_data.faces[fi]
+		var face := MBFace.new(by_face[fi])
+		face.submesh_index = src.submesh_index
+		face.manual_uv = src.manual_uv
+		face.mirror_copy = src.mirror_copy
+		face.uv_offset = src.uv_offset
+		face.uv_rotation = src.uv_rotation
+		face.uv_scale = src.uv_scale
+		face.uv_flip_u = src.uv_flip_u
+		face.uv_flip_v = src.uv_flip_v
+		face.uv_swap_uv = src.uv_swap_uv
+		face.uv_fill = src.uv_fill
+		face.uv_anchor = src.uv_anchor
+		rebuilt.append(face)
+	mesh_data.faces = rebuilt
+	mesh_data.calculate_normals()
+	_rebuild_topology(mesh_data)
+	return {"ok": true, "flipped": flipped_count, "faces": mesh_data.faces.size()}
+
+## Inspects the mesh the way a CSG kernel (and the eye) would## Inspects the mesh the way a CSG kernel (and the eye) would: open edges of the
+## triangle net, edges shared by more than two triangles, and triangle pairs that
+## cut through each other. Returns
+##   {ok, open_edges, nonmanifold_edges, self_intersections, triangles, bad_faces, skipped}
+## where `bad_faces` are FACE indexes touching any of the problems (the viewport
+## selection can take them straight away) and `skipped` is true when the mesh has
+## too many triangles for the pairwise overlap test.
+static func check_mesh(mesh_data: MBMeshData, max_tris_for_overlap: int = 5000) -> Dictionary:
+	if mesh_data == null or mesh_data.faces.is_empty():
+		return {"ok": false, "error": "Check mesh: no mesh data"}
+	# Corners welded by POSITION (0.1 mm): the data keeps a private copy of a
+	# corner per face, so index-level adjacency is meaningless here.
+	var canon := {}
+	var canon_pos := PackedVector3Array()
+	var tri_ids := PackedInt32Array()
+	var tri_faces := PackedInt32Array()
+	for fi in mesh_data.faces.size():
+		var face: MBFace = mesh_data.faces[fi]
+		if face == null:
+			continue
+		var idx := face.get_indexes()
+		var k := 0
+		while k + 2 < idx.size():
+			for corner in [idx[k], idx[k + 1], idx[k + 2]]:
+				var p: Vector3 = mesh_data.positions[corner]
+				var key := Vector3i(roundi(p.x * 10000.0), roundi(p.y * 10000.0), roundi(p.z * 10000.0))
+				if not canon.has(key):
+					canon[key] = canon_pos.size()
+					canon_pos.append(p)
+				tri_ids.append(int(canon[key]))
+			tri_faces.append(fi)
+			k += 3
+	var bad := {}
+	var edges := {}
+	var dir_count := {}
+	var dir_faces := {}
+	var t := 0
+	while t + 2 < tri_ids.size():
+		for pair in [[0, 1], [1, 2], [2, 0]]:
+			var a: int = tri_ids[t + pair[0]]
+			var b: int = tri_ids[t + pair[1]]
+			var key := "%d|%d" % [mini(a, b), maxi(a, b)]
+			if not edges.has(key):
+				edges[key] = {"count": 0, "face": tri_faces[t / 3]}
+			var rec: Dictionary = edges[key]
+			rec["count"] = int(rec["count"]) + 1
+			edges[key] = rec
+			var dkey := "%d|%d" % [a, b]
+			dir_count[dkey] = int(dir_count.get(dkey, 0)) + 1
+			if not dir_faces.has(dkey):
+				dir_faces[dkey] = []
+			var fl: Array = dir_faces[dkey]
+			fl.append(tri_faces[t / 3])
+			dir_faces[dkey] = fl
+		t += 3
+	var open_edges := 0
+	var nonmanifold := 0
+	for key in edges:
+		var rec: Dictionary = edges[key]
+		var count: int = int(rec["count"])
+		if count == 1:
+			open_edges += 1
+			bad[int(rec["face"])] = true
+		elif count > 2:
+			nonmanifold += 1
+			bad[int(rec["face"])] = true
+	# Inconsistent winding: two triangles that share an edge should walk it in
+	# OPPOSITE directions. When they walk it the same way, one of them is turned
+	# inside out — invisible in the viewport, fatal to a CSG kernel.
+	var flipped_edges := 0
+	for key in dir_count:
+		if int(dir_count[key]) > 1:
+			flipped_edges += 1
+			for fi in dir_faces[key]:
+				bad[int(fi)] = true
+
+	var tri_count: int = tri_ids.size() / 3
+	var overlaps := 0
+	var skipped := false
+	if tri_count > max_tris_for_overlap:
+		skipped = true
+	else:
+		var tris: Array = []
+		for ti in tri_count:
+			tris.append({"a": canon_pos[tri_ids[ti * 3]], "b": canon_pos[tri_ids[ti * 3 + 1]],
+				"c": canon_pos[tri_ids[ti * 3 + 2]], "face": tri_faces[ti],
+				"ia": tri_ids[ti * 3], "ib": tri_ids[ti * 3 + 1], "ic": tri_ids[ti * 3 + 2]})
+		for i in tri_count:
+			var ta: Dictionary = tris[i]
+			for j in range(i + 1, tri_count):
+				var tb: Dictionary = tris[j]
+				if int(ta["face"]) == int(tb["face"]):
+					continue
+				# Neighbours that share a corner only TOUCH — a welded mesh is
+				# full of those, and counting them buried the real folds.
+				var shared := false
+				for ia in [ta["ia"], ta["ib"], ta["ic"]]:
+					if ia == tb["ia"] or ia == tb["ib"] or ia == tb["ic"]:
+						shared = true
+						break
+				if shared:
+					continue
+				if not _triangles_overlap(ta, tb):
+					continue
+				overlaps += 1
+				bad[int(ta["face"])] = true
+				bad[int(tb["face"])] = true
+
+	var bad_faces := PackedInt32Array()
+	for fi in bad:
+		bad_faces.append(int(fi))
+	bad_faces.sort()
+	return {"ok": true, "open_edges": open_edges, "nonmanifold_edges": nonmanifold,
+		"flipped_edges": flipped_edges, "self_intersections": overlaps, "triangles": tri_count,
+		"bad_faces": bad_faces, "skipped": skipped}
+
+## True when the two triangles pass through each other (shared corners and pure
+## edge touches do not count — those are normal in a welded mesh).
+static func _triangles_overlap(ta: Dictionary, tb: Dictionary) -> bool:
+	var a0: Vector3 = ta["a"]
+	var a1: Vector3 = ta["b"]
+	var a2: Vector3 = ta["c"]
+	var b0: Vector3 = tb["a"]
+	var b1: Vector3 = tb["b"]
+	var b2: Vector3 = tb["c"]
+	# Cheap reject: bounding boxes.
+	for axis in 3:
+		var amax: float = maxf(maxf(a0[axis], a1[axis]), a2[axis])
+		var amin: float = minf(minf(a0[axis], a1[axis]), a2[axis])
+		var bmax: float = maxf(maxf(b0[axis], b1[axis]), b2[axis])
+		var bmin: float = minf(minf(b0[axis], b1[axis]), b2[axis])
+		if amax < bmin - 0.00001 or bmax < amin - 0.00001:
+			return false
+	for pair in [[ta, tb], [tb, ta]]:
+		var t: Dictionary = pair[0]
+		var o: Dictionary = pair[1]
+		var p0: Vector3 = t["a"]
+		var p1: Vector3 = t["b"]
+		var p2: Vector3 = t["c"]
+		var n: Vector3 = (p1 - p0).cross(p2 - p0)
+		if n.length_squared() < 1e-12:
+			continue
+		var q: Array = [o["a"], o["b"], o["c"]]
+		var d := [n.dot((q[0] - p0)), n.dot((q[1] - p0)), n.dot((q[2] - p0))]
+		var all_pos: bool = d[0] > 0.0 and d[1] > 0.0 and d[2] > 0.0
+		var all_neg: bool = d[0] < 0.0 and d[1] < 0.0 and d[2] < 0.0
+		if all_pos or all_neg:
+			continue
+		for e in [[0, 1], [1, 2], [2, 0]]:
+			var i0: int = e[0]
+			var i1: int = e[1]
+			var d0: float = d[i0]
+			var d1: float = d[i1]
+			if (d0 > 0.0) == (d1 > 0.0):
+				continue
+			var tpar: float = d0 / (d0 - d1)
+			var hit: Vector3 = (q[i0] as Vector3).lerp(q[i1], tpar)
+			if _point_in_triangle(hit, p0, p1, p2):
+				return true
+	return false
+
+static func _point_in_triangle(p: Vector3, a: Vector3, b: Vector3, c: Vector3) -> bool:
+	var n: Vector3 = (b - a).cross(c - a)
+	if n.length_squared() < 1e-12:
+		return false
+	n = n.normalized()
+	var eps := -1e-6
+	return (b - a).cross(p - a).dot(n) >= eps and (c - b).cross(p - b).dot(n) >= eps \
+		and (a - c).cross(p - c).dot(n) >= eps
+
+## Closes slits in the TRIANGLE mesh — the repair step a CSG boolean needs.
+##
+## Faces can meet outline-to-outline while the triangles underneath leave a
+## gap (a fan-shaped n-gon, a T-junction from a knife cut). Godot's CSG kernel
+## is a manifold solver: fed a mesh with slits, it returns nothing at all. This
+## walks the welded triangle net, collects the open edges into loops and patches
+## each loop with a fan, wound to match the triangle next to it.
+## Returns {ok, holes, added}.
+static func weld_net_holes(mesh_data: MBMeshData, tol: float = 0.0005) -> Dictionary:
+	if mesh_data == null or mesh_data.faces.is_empty():
+		return {"ok": false, "error": "Weld holes: no mesh data", "holes": 0, "added": 0}
+	# Corner position → canonical id, so the private per-face copies weld here.
+	var canon := {}
+	var canon_pos := PackedVector3Array()
+	var tri_ids := PackedInt32Array()
+	var tri_faces := PackedInt32Array()
+	for fi in mesh_data.faces.size():
+		var face: MBFace = mesh_data.faces[fi]
+		if face == null:
+			continue
+		var idx := face.get_indexes()
+		var k := 0
+		while k + 2 < idx.size():
+			for corner in [idx[k], idx[k + 1], idx[k + 2]]:
+				var key := _pos_key(mesh_data.positions[corner])
+				if not canon.has(key):
+					canon[key] = canon_pos.size()
+					canon_pos.append(mesh_data.positions[corner])
+				tri_ids.append(int(canon[key]))
+			tri_faces.append(fi)
+			k += 3
+	var edge_use := {}
+	var t := 0
+	while t + 2 < tri_ids.size():
+		for pair in [[0, 1], [1, 2], [2, 0]]:
+			var a: int = tri_ids[t + pair[0]]
+			var b: int = tri_ids[t + pair[1]]
+			var key := "%d|%d" % [mini(a, b), maxi(a, b)]
+			var rec: Dictionary = edge_use.get(key, {"count": 0, "tri": t / 3, "a": a, "b": b})
+			rec["count"] = int(rec["count"]) + 1
+			edge_use[key] = rec
+		t += 3
+	# Open edges, chained into loops over the shared corner ids.
+	var next_of := {}
+	var prev_of := {}
+	var open_edges: Array[Dictionary] = []
+	for key in edge_use:
+		var rec: Dictionary = edge_use[key]
+		if int(rec["count"]) != 1:
+			continue
+		var a: int = rec["a"]
+		var b: int = rec["b"]
+		open_edges.append({"a": a, "b": b, "tri": int(rec["tri"])})
+		next_of[a] = b
+		prev_of[b] = a
+	if open_edges.is_empty():
+		return {"ok": true, "holes": 0, "added": 0}
+	var visited := {}
+	var new_faces: Array[MBFace] = []
+	var holes := 0
+	for e in open_edges:
+		var start: int = e["a"]
+		if visited.has(start):
+			continue
+		var loop := PackedInt32Array()
+		var cur := start
+		var guard := 0
+		while guard < 100000:
+			guard += 1
+			if visited.has(cur):
+				break
+			visited[cur] = true
+			loop.append(cur)
+			if not next_of.has(cur):
+				break
+			cur = int(next_of[cur])
+			if cur == start:
+				break
+		if loop.size() < 3:
+			continue
+		# Fan-patch the loop on the corpus positions, wound to match the triangle
+		# that owns the first open edge (outward normal must agree).
+		var tri0: int = int(e["tri"])
+		var t0: int = tri0 * 3
+		var n_ref := Vector3.ZERO
+		if t0 + 2 < tri_ids.size():
+			var pa: Vector3 = canon_pos[tri_ids[t0]]
+			var pb: Vector3 = canon_pos[tri_ids[t0 + 1]]
+			var pc: Vector3 = canon_pos[tri_ids[t0 + 2]]
+			n_ref = (pb - pa).cross(pc - pa).normalized()
+		var ring: Array[int] = []
+		for id in loop:
+			ring.append(int(id))
+		# The open edge runs a→b for the triangle that owns it, so the patch has
+		# to run the other way round the loop to face the same side.
+		var ordered: Array[int] = []
+		ordered.append(ring[0])
+		for i in range(ring.size() - 1, 0, -1):
+			ordered.append(ring[i])
+		var patch := PackedInt32Array()
+		for i in range(1, ordered.size() - 1):
+			patch.append_array(PackedInt32Array([ordered[0], ordered[i], ordered[i + 1]]))
+		if patch.size() < 3:
+			continue
+		# Reject a patch whose normal points against the neighbour's: that means
+		# the loop was walked the wrong way and the hole would be filled inside out.
+		var p0: Vector3 = canon_pos[ordered[0]]
+		var p1: Vector3 = canon_pos[ordered[1]]
+		var p2: Vector3 = canon_pos[ordered[2]]
+		if (p1 - p0).cross(p2 - p0).normalized().dot(n_ref) < 0.0:
+			patch = PackedInt32Array()
+			for i in range(1, ordered.size() - 1):
+				patch.append_array(PackedInt32Array([ordered[0], ordered[i + 1], ordered[i]]))
+		var face := MBFace.new(PackedInt32Array())
+		var real := PackedInt32Array()
+		var key_to_pos := {}
+		for id in patch:
+			var cp: Vector3 = canon_pos[id]
+			var key := _pos_key(cp)
+			if not key_to_pos.has(key):
+				var fresh := mesh_data.positions.size()
+				mesh_data.positions.append(cp)
+				if mesh_data.textures0.size() == fresh:
+					mesh_data.textures0.append(Vector2.ZERO)
+				key_to_pos[key] = fresh
+			real.append(int(key_to_pos[key]))
+		face.set_indexes(real)
+		face.manual_uv = true
+		new_faces.append(face)
+		holes += 1
+	if new_faces.is_empty():
+		return {"ok": true, "holes": 0, "added": 0}
+	mesh_data.faces.append_array(new_faces)
+	_rebuild_topology(mesh_data)
+	return {"ok": true, "holes": holes, "added": new_faces.size()}
+
+## Rebuilds QUADS from the triangle pairs a CSG boolean leaves behind.
+##
+## Godot's CSG kernel works on triangles, so its output is a soup: every quad of
+## the operands comes back as two triangles — on the sides the cut never touched
+## too. This walks the result and, for every pair of triangles that
+##   * share exactly one edge (same corner POSITIONS — the CSG output carries a
+##     separate copy of a corner per triangle, so index keys never match),
+##   * lie on one plane and wear the same material,
+## puts back the quad they came from: four corners, the shared edge as the
+## diagonal, a real convex outline.
+## The faces the boolean actually cut keep the triangles the kernel produced:
+## a notch is not a quad, and gluing it into one would lose the cut.
+## Returns {ok, merged} (merged = quads rebuilt).
+static func rebuild_coplanar_quads(mesh_data: MBMeshData, angle_tol_deg: float = 0.5) -> Dictionary:
+	if mesh_data == null or mesh_data.faces.size() < 2:
+		return {"ok": true, "merged": 0}
+	var count: int = mesh_data.faces.size()
+	var normals: Array[Vector3] = []
+	var offsets: Array[float] = []
+	var extent := 0.0
+	for p in mesh_data.positions:
+		extent = maxf(extent, absf(p.x))
+		extent = maxf(extent, absf(p.y))
+		extent = maxf(extent, absf(p.z))
+	var plane_tol: float = maxf(0.0002, extent * 0.00005)
+	for fi in count:
+		var face: MBFace = mesh_data.faces[fi]
+		var deg := PackedInt32Array()
+		if face != null:
+			deg = face.get_distinct_indexes()
+		var n := Vector3.ZERO
+		var d := 0.0
+		if deg.size() >= 3:
+			var raw := MBMath.normal_from_positions(mesh_data.positions, deg)
+			if raw.length_squared() > 0.0000000001:
+				n = raw.normalized()
+				d = n.dot(mesh_data.positions[deg[0]])
+		normals.append(n)
+		offsets.append(d)
+
+	# Triangle corner (a, b) → triangle fan listing every triangle on that edge.
+	var edge_map := {}
+	for fi in count:
+		var face: MBFace = mesh_data.faces[fi]
+		if face == null or normals[fi] == Vector3.ZERO:
+			continue
+		var loop := _ordered_loop(face)
+		if loop.size() != 3:
+			continue
+		for i in 3:
+			var a: int = loop[i]
+			var b: int = loop[(i + 1) % 3]
+			var c: int = loop[(i + 2) % 3]
+			var key := _edge_key_from_points(_pos_key(mesh_data.positions[a]), _pos_key(mesh_data.positions[b]))
+			if not edge_map.has(key):
+				edge_map[key] = []
+			var list: Array = edge_map[key]
+			list.append({"face": fi, "a": a, "b": b, "c": c})
+			edge_map[key] = list
+
+	var cos_tol := cos(deg_to_rad(maxf(0.01, angle_tol_deg)))
+	var used := {}
+	var quads: Array[MBFace] = []
+	var removed := {}
+	for key in edge_map:
+		var list: Array = edge_map[key]
+		if list.size() != 2:
+			continue
+		var t0: Dictionary = list[0]
+		var t1: Dictionary = list[1]
+		var f0: int = t0["face"]
+		var f1: int = t1["face"]
+		if f0 == f1 or used.has(f0) or used.has(f1):
+			continue
+		if mesh_data.faces[f0].submesh_index != mesh_data.faces[f1].submesh_index:
+			continue
+		if normals[f0].dot(normals[f1]) < cos_tol:
+			continue
+		if absf(offsets[f0] - offsets[f1]) > plane_tol:
+			continue
+		# The shared edge must run in OPPOSITE directions — same-direction means
+		# the triangles fold back on each other, not a flat quad.
+		var same_dir: bool = _pos_key(mesh_data.positions[t0["a"]]) == _pos_key(mesh_data.positions[t1["a"]])
+		if same_dir:
+			continue
+		var c0: int = t0["c"]
+		var c1: int = t1["c"]
+		if _pos_key(mesh_data.positions[c0]) == _pos_key(mesh_data.positions[c1]):
+			continue
+		# Quad in winding order: a → c1 → b → c0 (the two triangles' outer ring).
+		var ring := PackedInt32Array([t0["a"], c1, t0["b"], c0])
+		if not _is_convex_quad(mesh_data, ring, normals[f0]):
+			continue
+		# MBFace stores TRIANGLES: the quad is its two fans, wound in ring order.
+		var quad := MBFace.new(PackedInt32Array([ring[0], ring[1], ring[2], ring[0], ring[2], ring[3]]))
+		var src: MBFace = mesh_data.faces[f0]
+		quad.submesh_index = src.submesh_index
+		quad.manual_uv = true   # the four corners keep the UVs they already had
+		quad.mirror_copy = src.mirror_copy
+		quads.append(quad)
+		removed[f0] = true
+		removed[f1] = true
+		used[f0] = true
+		used[f1] = true
+
+	if quads.is_empty():
+		return {"ok": true, "merged": 0}
+
+	var kept: Array[MBFace] = []
+	for fi in count:
+		if removed.has(fi):
+			continue
+		kept.append(mesh_data.faces[fi])
+	kept.append_array(quads)
+	mesh_data.faces = kept
+	_rebuild_topology(mesh_data)
+	return {"ok": true, "merged": quads.size()}
+
+## True when the four corners form a convex, non-degenerate outline whose normal
+## still matches the plane it is meant to lie on.
+static func _is_convex_quad(mesh_data: MBMeshData, ring: PackedInt32Array, normal: Vector3) -> bool:
+	if ring.size() != 4:
+		return false
+	var a := mesh_data.positions[ring[0]]
+	var b := mesh_data.positions[ring[1]]
+	var c := mesh_data.positions[ring[2]]
+	var d := mesh_data.positions[ring[3]]
+	var n := (b - a).cross(c - a) + (c - a).cross(d - a)
+	if n.length_squared() < 0.0000000001:
+		return false
+	if n.normalized().dot(normal) < 0.9:
+		return false
+	# Every corner must turn the same way, otherwise the ring crosses itself.
+	var pts := [a, b, c, d]
+	var sign := 0.0
+	for i in 4:
+		var v0: Vector3 = pts[i]
+		var v1: Vector3 = pts[(i + 1) % 4]
+		var v2: Vector3 = pts[(i + 2) % 4]
+		var cross := (v1 - v0).cross(v2 - v1).dot(normal)
+		if absf(cross) < 0.000000001:
+			return false
+		if sign == 0.0:
+			sign = signf(cross)
+		elif signf(cross) != sign:
+			return false
+	return true
+
+## Unordered edge key from two quantised corners.
+static func _edge_key_from_points(a: Vector3i, b: Vector3i) -> String:
+	var first := a
+	var second := b
+	if b.x < a.x or (b.x == a.x and (b.y < a.y or (b.y == a.y and b.z < a.z))):
+		first = b
+		second = a
+	return str(first) + "|" + str(second)
+
+## Welds (merges) the selected shared-vertex groups:## Welds (merges) the selected shared-vertex groups: every position in the
 ## selected groups snaps to their common centroid and the groups collapse
 ## into one (rebuilt from coincidence). `vertex_ids` are shared-vertex GROUP
 ## indexes — the subgizmo ids used by VERTEX-mode selection.

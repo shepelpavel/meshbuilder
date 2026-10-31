@@ -210,6 +210,12 @@ func _build_ui() -> void:
 	_btn_merge_by_distance = _make_op_button("Merge by Dist", "merge_by_distance",
 		"Collapse every pair of vertices closer than 1 mm into one (Blender's Merge by Distance) — works on the whole mesh, no selection needed",
 		"icon_merge_distance.svg")
+	_op_buttons["check_mesh"] = _make_op_button("Check", "check_mesh",
+		"Check the mesh: open edges, non-manifold edges, inconsistent winding and self-intersections; the bad faces get selected",
+		"icon_check_mesh.svg")
+	_op_buttons["fix_winding"] = _make_op_button("Fix Winding", "fix_winding",
+		"Flip triangles that disagree with their neighbours about the outside — what makes a CSG boolean return nothing",
+		"icon_fix_winding.svg")
 	_make_op_button("Detach", "detach_faces", "Detach the selected faces into a new MBMesh node", "icon_detach.svg")
 	_make_op_button("Del", "delete_selection", "Delete selection: faces, edges or vertices (X)", "icon_delete.svg")
 
@@ -241,7 +247,9 @@ func _build_ui() -> void:
 	_make_op_button("CSG Subtract", "csg_subtract", "CSG: Subtract the LAST-selected mesh from the FIRST-selected mesh", "icon_csg_subtract.svg")
 	_make_op_button("CSG Intersect", "csg_intersect", "CSG: Solid intersection of the selected meshes (select target first, cutter last)", "icon_csg_intersect.svg")
 
-	_make_op_button("Auto Smooth", "smooth_auto", "Auto-smooth faces by dihedral angle (45 deg)", "icon_auto_smooth.svg")
+	_make_op_button("Auto Smooth", "smooth_auto", "Smooth everything that is not marked sharp (no angle threshold: creases are marked by hand with Sharp)", "icon_auto_smooth.svg")
+	_make_op_button("Flat", "flat_shading", "Flat shading: clear the smoothing groups (the opposite of Auto Smooth)", "icon_flat_shading.svg")
+	_make_op_button("Sharp", "mark_sharp", "Mark the selected EDGES sharp: Auto Smooth never crosses them and the faces on their sides never share normals through them (press again to unmark)", "icon_sharp.svg")
 
 	# Object state toggles (row 3): Lit + Cast Shadows for the scene selection.
 	_btn_obj_lit = Button.new()
@@ -365,7 +373,7 @@ func _update_row_layout() -> void:
 			_op_buttons["shrink_selection"], _op_buttons["select_coplanar"], _op_buttons["select_similar"],
 			_op_buttons["select_boundary"], _op_buttons["select_face_loop"], _op_buttons["select_face_ring"],
 		],
-		[_op_buttons["smooth_auto"]],
+		[_op_buttons["smooth_auto"], _op_buttons["flat_shading"], _op_buttons["mark_sharp"]],
 	])
 	# Row 2: snapping / grid / display in front, then the mesh operations.
 	_add_row([
@@ -388,7 +396,7 @@ func _update_row_layout() -> void:
 			_op_buttons["merge_objects"], _op_buttons["mirror_object"], _btn_mirror_model, _btn_mirror_apply, _op_buttons["center_pivot"],
 			_op_buttons["freeze_transform"], _op_buttons["meshbuilderize"],
 		],
-		[_btn_merge_by_distance],
+		[_btn_merge_by_distance, _op_buttons["check_mesh"], _op_buttons["fix_winding"]],
 		[_op_buttons["csg_union"], _op_buttons["csg_subtract"], _op_buttons["csg_intersect"]],
 		[_btn_materials, _btn_uv_editor, _btn_overlay, _btn_recover_overlay, _btn_settings],
 	])
@@ -604,7 +612,9 @@ func _on_selection_info_changed(_arg = null) -> void:
 	if _btn_merge_by_distance != null:
 		_btn_merge_by_distance.disabled = not has_mesh
 	if _op_buttons.has("merge_objects"):
-		_op_buttons["merge_objects"].disabled = not has_mesh
+		_op_buttons["check_mesh"].disabled = not has_mesh
+	_op_buttons["fix_winding"].disabled = not has_mesh
+	_op_buttons["merge_objects"].disabled = not has_mesh
 	if _op_buttons.has("mirror_object"):
 		_op_buttons["mirror_object"].disabled = not has_mesh
 	if _btn_mirror_apply != null:
@@ -648,6 +658,10 @@ func _on_selection_info_changed(_arg = null) -> void:
 		_op_buttons["csg_intersect"].disabled = false
 	if _op_buttons.has("smooth_auto"):
 		_op_buttons["smooth_auto"].disabled = not has_mesh
+	if _op_buttons.has("flat_shading"):
+		_op_buttons["flat_shading"].disabled = not has_mesh
+	if _op_buttons.has("mark_sharp"):
+		_op_buttons["mark_sharp"].disabled = not (has_mesh and in_edge and edges_selected)
 
 
 func sync_snapping(v_snap: bool, prop: bool, radius: float) -> void:

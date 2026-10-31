@@ -212,6 +212,7 @@ func rebuild() -> void:
 		_needs_rebuild = false
 		_update_collider()
 		return
+	mb_mesh_data.prune_sharp_edges()
 	var chunks := mb_mesh_data.to_array_meshes()
 	mesh = chunks[0]
 	_sync_overflow_chunks(chunks)
@@ -226,6 +227,7 @@ func rebuild_positions() -> void:
 		mesh = null
 		_needs_rebuild = false
 		return
+	mb_mesh_data.prune_sharp_edges()
 	var chunks := mb_mesh_data.to_array_meshes(true)
 	mesh = chunks[0]
 	_sync_overflow_chunks(chunks)
