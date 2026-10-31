@@ -40,7 +40,11 @@ var material_dock: MBMaterialDock = null
 var _material_panel: Control = null
 var _material_bottom_button: Button = null
 var uv_editor_panel: MBUvEditorPanel = null
-var _uv_bottom_button: Button = null
+var _uv_bottom_button: Button
+var paint_panel: MBPaintPanel
+var _paint_bottom_button: Button
+var _paint_before: MBMeshData = null
+var _paint_node: MBMesh = null
 var material_drop_overlay: MBMaterialDropOverlay = null
 var _cursor_extents_label: Label = null
 ## Top-center hint banner over the 3D scene (shape / n-gon modes and their
@@ -228,6 +232,32 @@ func _enter_tree():
 		_uv_bottom_button = add_control_to_bottom_panel(uv_editor_panel, "UV Editor")
 		_give_scrolled_panel_height(uv_editor_panel, uv_editor_panel, 200.0)
 	uv_editor_panel.pop_out_toggled.connect(_on_uv_pop_out_toggled)
+	# Vertex-colour painting: its own bottom-panel tab. Colours live in the mesh
+	# data (MBMeshData.colors) and are uploaded as ARRAY_COLOR, so any material
+	# with "vertex colour as albedo" shows them.
+	paint_panel = MBPaintPanel.new()
+	paint_panel.name = "PaintPanel"
+	if Engine.is_editor_hint():
+		_paint_bottom_button = add_control_to_bottom_panel(paint_panel, "VtxPaint")
+		# Small floor only: the tab is one row of controls plus the palette, and a
+		# fixed 150 px left a band of empty space under it.
+		_give_scrolled_panel_height(paint_panel, paint_panel, 66.0)
+	paint_panel.request_fill_selected.connect(_on_paint_fill_selected)
+	paint_panel.request_fill_all.connect(_on_paint_fill_all)
+	paint_panel.request_reset.connect(_on_paint_reset)
+	paint_panel.eyedropper_toggled.connect(_on_paint_eyedropper_toggled)
+	paint_panel.request_mode.connect(_on_paint_mode_requested)
+	paint_panel.brush_toggled.connect(_on_paint_brush_toggled)
+	if editor != null and editor.selection != null:
+		if not editor.selection.selection_changed.is_connected(_on_mb_selection_changed):
+			editor.selection.selection_changed.connect(_on_mb_selection_changed)
+	for other_tab in [_toolbar_bottom_button, _material_bottom_button, _uv_bottom_button]:
+		if other_tab != null:
+			other_tab.pressed.connect(func() -> void:
+				if paint_panel != null:
+					paint_panel.force_brush_off()
+					paint_panel.force_eyedropper_off()
+			)
 	# Half-size manipulator gizmos by default (the engine default of 80px is
 	# huge next to MeshBuilder's element work). Respect user customization:
 	# only applied while the setting still sits at the engine default.
@@ -398,6 +428,246 @@ func _mount_toolbar_in_bottom_panel() -> void:
 	_reveal_toolbar_panel(host)
 	logger.info("plugin", "Toolbar mounted in the bottom panel")
 
+# ==============================================================================
+# Vertex-colour painting
+# ==============================================================================
+
+func _paint_target() -> MBMesh:
+	var mesh: MBMesh = editor.active_mesh if editor != null else null
+	if mesh == null:
+		# The Paint tab works on whatever MBMesh is selected in the scene, not
+		# only on the one that went through the plugin's own edit session.
+		var selection := get_editor_interface().get_selection()
+		if selection != null:
+			for node in selection.get_selected_nodes():
+				if node is MBMesh:
+					mesh = node
+					break
+	if mesh == null or mesh.mb_mesh_data == null:
+		return null
+	if editor.active_mesh != mesh:
+		# Adopt it as the active mesh so face selection (Fill Selected) and the
+		# viewport brush work on the same object.
+		editor.set_active_mesh(mesh)
+	return mesh
+
+func _on_paint_fill_selected(color: Color) -> void:
+	var mesh := _paint_target()
+	if mesh == null:
+		_op_hint("Paint: select an MBMesh first")
+		return
+	var data: MBMeshData = mesh.mb_mesh_data
+	var before := MBCommand.copy_mesh_data(data)
+	if editor.selection == null or editor.selection.selected_face_count() == 0:
+		# The button is disabled in this state; the guard is only here so a stale
+		# click cannot paint the whole mesh by surprise.
+		_op_hint("Paint: select faces first (Face mode, then click faces)")
+		return
+	var touched := MBPaintOps.fill_faces(data, editor.selection.selected_faces, color)
+	_paint_finish(mesh, before, "Paint Selected Faces", touched)
+
+func _on_paint_fill_all(color: Color) -> void:
+	var mesh := _paint_target()
+	if mesh == null:
+		_op_hint("Paint: select an MBMesh first")
+		return
+	var data: MBMeshData = mesh.mb_mesh_data
+	var before := MBCommand.copy_mesh_data(data)
+	var touched := MBPaintOps.fill_all(data, color)
+	_paint_finish(mesh, before, "Paint Whole Mesh", touched)
+
+func _on_paint_reset(color: Color) -> void:
+	var mesh := _paint_target()
+	if mesh == null:
+		_op_hint("Paint: select an MBMesh first")
+		return
+	var data: MBMeshData = mesh.mb_mesh_data
+	var before := MBCommand.copy_mesh_data(data)
+	var touched := MBPaintOps.fill_all(data, color)
+	_paint_finish(mesh, before, "Reset Vertex Colors", touched)
+
+func _on_paint_eyedropper_toggled(active: bool) -> void:
+	if not active:
+		_op_hint("Eyedropper off")
+		return
+	if paint_panel != null and paint_panel.brush_active:
+		paint_panel.force_brush_off()
+	_op_hint("Eyedropper: click a vertex in the viewport")
+
+## Mouse handling for the armed eyedropper: click a vertex, its colour becomes
+## the brush colour and the mode turns off.
+func _eyedropper_input(camera: Camera3D, event: InputEvent) -> int:
+	if paint_panel == null or not paint_panel.eyedropper_active:
+		return AFTER_GUI_INPUT_PASS
+	if not (event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT and (event as InputEventMouseButton).pressed):
+		return AFTER_GUI_INPUT_PASS
+	var mb := event as InputEventMouseButton
+	var mesh := _paint_target()
+	if mesh == null:
+		_paint_log("eyedropper: no MBMesh selected")
+		return AFTER_GUI_INPUT_STOP
+	var inv := mesh.global_transform.affine_inverse()
+	var local_origin: Vector3 = inv * camera.project_ray_origin(mb.position)
+	var local_dir: Vector3 = (inv.basis * camera.project_ray_normal(mb.position)).normalized()
+	var hit := MBPaintOps.raycast(mesh.mb_mesh_data, local_origin, local_dir)
+	if not hit["hit"]:
+		_paint_log("eyedropper: no hit on the mesh")
+		return AFTER_GUI_INPUT_STOP
+	# Take the colour of the FACE that was hit (its nearest corner) — looking for
+	# the nearest vertex in the whole mesh picked a corner of a neighbouring face
+	# whenever the clicked face's corners were further away.
+	var point: Vector3 = hit["point"]
+	var color := MBPaintOps.color_at_face(mesh.mb_mesh_data, int(hit.get("face", -1)), point)
+	paint_panel.take_picked_color(color)
+	_paint_log("eyedropper: picked %s" % color.to_html(false))
+	return AFTER_GUI_INPUT_STOP
+
+## Element-mode shortcut from the Paint tab.
+func _on_paint_mode_requested(mode: int) -> void:
+	var target := MBEditor.SelectMode.OBJECT
+	match mode:
+		1: target = MBEditor.SelectMode.VERTEX
+		2: target = MBEditor.SelectMode.EDGE
+		3: target = MBEditor.SelectMode.FACE
+	editor.set_select_mode(target)
+	if paint_panel != null:
+		paint_panel.sync_mode(mode)
+	_paint_log("mode -> %d" % mode)
+
+func _on_paint_brush_toggled(active: bool) -> void:
+	_op_hint("Paint brush ON — drag in the viewport to paint, Alt erases" if active else "Paint brush off")
+
+func _paint_finish(mesh: MBMesh, before: MBMeshData, action_name: String, touched: int) -> void:
+	_enable_paint_materials(mesh)
+	var after := MBCommand.copy_mesh_data(mesh.mb_mesh_data)
+	var undo := get_undo_redo()
+	if undo != null:
+		undo.create_action(action_name, UndoRedo.MERGE_DISABLE, mesh)
+		undo.add_do_method(self, "_restore_mesh_snapshot", mesh.get_instance_id(), after)
+		undo.add_undo_method(self, "_restore_mesh_snapshot", mesh.get_instance_id(), before)
+		undo.commit_action()
+	mesh.rebuild()
+	_op_hint("%s: %d vertex colours painted" % [action_name, touched])
+
+
+## Mouse handling for the brush, called from _forward_3d_gui_input.
+## Paint feedback goes to the same banner the modelling tools use, so the brush
+## reports "painted N / no hit" where the eye already is instead of in a corner
+## of the panel.
+var _paint_hint_ms: int = 0
+
+func _paint_log(text: String) -> void:
+	# The brush calls this on every mouse-motion sample; the banner only needs a
+	# few updates a second (the log file keeps every line).
+	var now := Time.get_ticks_msec()
+	if now - _paint_hint_ms >= 350:
+		_paint_hint_ms = now
+		_op_hint(text)
+	var f := FileAccess.open("user://mb_paint.log", FileAccess.READ_WRITE)
+	if f == null:
+		f = FileAccess.open("user://mb_paint.log", FileAccess.WRITE)
+	if f != null:
+		f.seek_end()
+		f.store_line("[%s] %s" % [Time.get_time_string_from_system(), text])
+		f.close()
+
+func _paint_input(camera: Camera3D, event: InputEvent) -> int:
+	if paint_panel == null or not paint_panel.brush_active:
+		return AFTER_GUI_INPUT_PASS
+	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		var mb := event as InputEventMouseButton
+		if mb.pressed:
+			_paint_node = _paint_target()
+			if _paint_node == null:
+				_paint_log("click: no MBMesh (select one in the scene)")
+				_op_hint("Paint: select an MBMesh first")
+				return AFTER_GUI_INPUT_STOP
+			_paint_log("click: mesh=%s mode=%d" % [_paint_node.name, editor.select_mode])
+			_paint_before = MBCommand.copy_mesh_data(_paint_node.mb_mesh_data)
+			_paint_stroke(camera, mb.position, mb.alt_pressed)
+			return AFTER_GUI_INPUT_STOP
+		if _paint_node != null and _paint_before != null:
+			var after := MBCommand.copy_mesh_data(_paint_node.mb_mesh_data)
+			var undo := get_undo_redo()
+			if undo != null:
+				undo.create_action("Paint Vertex Colors", UndoRedo.MERGE_DISABLE, _paint_node)
+				undo.add_do_method(self, "_restore_mesh_snapshot", _paint_node.get_instance_id(), after)
+				undo.add_undo_method(self, "_restore_mesh_snapshot", _paint_node.get_instance_id(), _paint_before)
+				undo.commit_action()
+			_paint_node = null
+			_paint_before = null
+			return AFTER_GUI_INPUT_STOP
+	if event is InputEventMouseMotion and ((event as InputEventMouseMotion).button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+		_paint_stroke(camera, (event as InputEventMouseMotion).position, (event as InputEventMouseMotion).alt_pressed)
+		return AFTER_GUI_INPUT_STOP
+	return AFTER_GUI_INPUT_PASS
+
+func _paint_stroke(camera: Camera3D, screen_pos: Vector2, erase: bool) -> void:
+	if _paint_node == null or _paint_node.mb_mesh_data == null or paint_panel == null:
+		return
+	_enable_paint_materials(_paint_node)
+	var color := paint_panel.paint_color_for_erase(erase)
+	# Aim at the MESH, not at whatever collider the ray hits first. The ray comes
+	# in WORLD space while MBMeshData.positions are LOCAL to the node, so the ray
+	# has to be pushed into the node's space first — otherwise every hit lands
+	# somewhere else and the wrong face gets painted.
+	var origin: Vector3 = camera.project_ray_origin(screen_pos)
+	var dir: Vector3 = camera.project_ray_normal(screen_pos)
+	var inv := _paint_node.global_transform.affine_inverse()
+	var local_origin: Vector3 = inv * origin
+	var local_dir: Vector3 = (inv.basis * dir).normalized()
+	var mesh_hit := MBPaintOps.raycast(_paint_node.mb_mesh_data, local_origin, local_dir)
+	var ray := {"valid": mesh_hit["hit"], "point": mesh_hit["point"]}
+	if ray["valid"]:
+		var point: Vector3 = ray["point"]
+		var data: MBMeshData = _paint_node.mb_mesh_data
+		var strength: float = paint_panel.brush_strength
+		# 1. A soft gradient around the click, regardless of the element mode —
+		#    the stroke bleeds past the face under the cursor, which is what makes
+		#    edges and faces blend instead of looking like stickers.
+		var spread := 0
+		if paint_panel.brush_spread > 0.0:
+			spread = MBPaintOps.paint_sphere(data, point, paint_panel.brush_radius, color,
+				strength * paint_panel.brush_spread)
+		# 2. Then the element the mode asks for, painted at full strength.
+		var hit_count := spread
+		match editor.select_mode:
+			MBEditor.SelectMode.FACE:
+				# The ray already says WHICH face it hit — take that one instead of
+				# re-searching by distance, where coincident faces tie and the wrong
+				# one wins.
+				var hit_face: int = int(mesh_hit.get("face", -1))
+				if hit_face >= 0:
+					hit_count = MBPaintOps.fill_faces(data, PackedInt32Array([hit_face]), color)
+				else:
+					hit_count = MBPaintOps.paint_nearest_face(data, point, color, strength)
+				_paint_log("stroke: face %d painted (%d corners), gradient %d" % [hit_face, hit_count, spread])
+			MBEditor.SelectMode.EDGE:
+				hit_count = MBPaintOps.paint_nearest_edge(data, point, color, strength)
+				_paint_log("stroke: edge painted (%d corners), gradient %d" % [hit_count, spread])
+			MBEditor.SelectMode.VERTEX:
+				hit_count = MBPaintOps.paint_nearest_vertex(data, point, color, strength)
+				_paint_log("stroke: vertex painted (%d corners), gradient %d" % [hit_count, spread])
+			_:
+				_paint_log("stroke: gradient only (%d vertices)" % spread)
+		if hit_count == 0 and spread == 0:
+			_paint_log("stroke: nothing painted at %s" % str(point))
+	_paint_node.rebuild()
+
+## Makes the painted colours actually visible: a material without "vertex colour
+## as albedo" ignores ARRAY_COLOR, so the stroke silently painted nothing on
+## screen. Done once per mesh, on the first stroke/fill.
+func _enable_paint_materials(mesh: MBMesh) -> void:
+	if mesh == null or mesh.mb_mesh_data == null:
+		return
+	if mesh.mb_mesh_data.has_meta("mb_paint_materials_on"):
+		return
+	var changed := MBPaintOps.enable_vertex_color_albedo(mesh.mb_mesh_data)
+	mesh.mb_mesh_data.set_meta("mb_paint_materials_on", true)
+	if changed > 0:
+		mesh.rebuild()
+		_op_hint("Paint: vertex colour enabled on %d material(s)" % changed)
+
 ## Opens the MeshBuilder tab and gives the panel its height.
 ##
 ## Two things conspire on a clean start (no saved dock layout): the rows report
@@ -516,6 +786,18 @@ func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 	# Interactive N-gon drawing / Knife tool owns the mouse while active
 	if ngon_drawer.is_active():
 		return _ngon_drawer_input(camera, event)
+
+	# Eyedropper mode: one click picks a colour and drops the mode.
+	if paint_panel != null and paint_panel.eyedropper_active:
+		var pick_result := _eyedropper_input(camera, event)
+		if pick_result != AFTER_GUI_INPUT_PASS:
+			return pick_result
+
+	# Paint brush owns the mouse while its toggle is on.
+	if paint_panel != null and paint_panel.brush_active:
+		var paint_result := _paint_input(camera, event)
+		if paint_result != AFTER_GUI_INPUT_PASS:
+			return paint_result
 
 	# Shape creation owns the mouse while armed/dragging/modal (checked even
 	# when nothing is selected — creation needs no editing context).
@@ -825,8 +1107,15 @@ func _on_snap_selection_to_grid() -> void:
 # Object Selection Handling
 # ==============================================================================
 
+func _on_mb_selection_changed() -> void:
+	if paint_panel != null and editor != null:
+		paint_panel.sync_from_selection(editor)
+
 func _on_selection_changed() -> void:
 	_refresh_pick_order()
+	if paint_panel != null:
+		paint_panel.sync_from_selection(editor)
+		paint_panel.sync_mode(int(editor.select_mode))
 	var selection: EditorSelection = get_editor_interface().get_selection()
 	var nodes: Array[Node] = selection.get_selected_nodes()
 

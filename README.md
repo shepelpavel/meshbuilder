@@ -32,6 +32,11 @@ new shapes. A dedicated 2D UV editor with UV1 and UV2 channels, box unwrap, Ligh
 island selection and snapping — plus a per-face row (tiling, offset, rotation, flips, vertex-colour
 tint).
 
+**Vertex colour painting.** A dedicated *VtxPaint* tab: a brush that paints vertex colours in the
+viewport (element modes decide whether a click paints the face under the cursor, the nearest edge's ends or
+the nearest vertex), fill-selected / fill-all / reset, an eyedropper mode, numeric radius / strength /
+spread and an editable colour palette stored in the editor settings. Colours go out as `ARRAY_COLOR`.
+
 **Extras.** CSG booleans (union / subtract / intersect), `MeshBuilderize` to turn a `MeshInstance3D`
 or a CSG node into an editable mesh, a live mirror modifier with an Apply toggle that bakes it into real
 faces (and bakes it back), snapping to the editor's grid step.
@@ -45,8 +50,8 @@ Godot 4.7 or newer. Pure GDScript — no GDExtension, no C#/.NET build, no nativ
 Copy the `addons/meshbuilder` folder into your project and enable **MeshBuilder** in
 `Project → Project Settings → Plugins`.
 
-The UI lives in the editor's **bottom panel** as three tabs — *MeshBuilder* (toolbar),
-*Materials* (material palette of the selected mesh) and *UV Editor* (2D unwrapping and per-face UV/tint) — so the
+The UI lives in the editor's **bottom panel** as four tabs — *MeshBuilder* (toolbar),
+*Materials* (material palette of the selected mesh), *UV Editor* (2D unwrapping and per-face UV/tint) — so the
 plugin takes neither rows from the 3D viewport nor the right-hand dock column.
 
 ### No file export
@@ -87,6 +92,11 @@ bridge, connect, tunnel, fill hole, detach, delete. Всё с превью и п
 новых фигур. Отдельный 2D UV-редактор: каналы UV1 и UV2, box-unwrap, развёртка для LightmapGI,
 острова, снап — плюс строка «Face:» для граней (тайлинг, офсет, угол, флипы, тинт вершинным цветом).
 
+**Раскраска вершин.** Отдельная вкладка «VtxPaint»: кисть по вершинам в вьюпорте (режим элемента решает,
+что красит клик — грань под курсором, концы ближайшего ребра или ближайшую вершину), заливка выделенного /
+всего меша / сброс, режим пипетки, числовые радиус / сила / растекание и редактируемая палитра, которая
+хранится в настройках редактора. Цвета уходят в `ARRAY_COLOR`.
+
 **Прочее.** CSG-булевы (union / subtract / intersect), `MeshBuilderize` — превратить `MeshInstance3D`
 или CSG в редактируемый меш, живое зеркало с тумблером Apply (запекает отражение в грани и обратно),
 привязка по шагу сетки редактора.
@@ -112,7 +122,8 @@ rsync -a --delete \
 Включить в `Проект → Настройки проекта → Плагины → MeshBuilder`.
 
 Всё живёт в **нижней панели** отдельными вкладками — «MeshBuilder» (тулбар), «Materials» (палитра
-материалов выделенного меша) и «UV Editor» (2D-развёртка и построчная правка UV/тинта): так плагин не
+материалов выделенного меша), «UV Editor» (2D-развёртка и построчная правка UV/тинта) и «VtxPaint»
+(раскраска вершин): так плагин не
 отъедает ни строки у 3D-вьюпорта, ни правую колонку доков.
 
 ### Экспорта в файл нет

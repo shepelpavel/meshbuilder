@@ -107,6 +107,29 @@ beveled at all.
   modifier. Re-baking always rebuilds the copy from the current half, so copies never stack. The copy
   inherits everything from the source face: contour shape (a quad stays a quad), UVs, tiling
   rotation/scale, smoothing group and material.
+- The **VtxPaint** tab colours the vertices (vertex colour) of the active mesh. The panel is a single row:
+  modes, brush, numeric fields, fills.
+  - **Modes** are icons, same as the modelling toolbar (**Object**, **Vertex**, **Edge**, **Face**); they
+    also switch the editor's element mode. The mode decides what a click paints: **Face** — the whole face
+    under the cursor, **Edge** — the two ends of the nearest edge, **Vertex** — the nearest vertex,
+    **Object** — the gradient only.
+  - **Brush** (an icon toggle that lights up while armed) paints on the surface in the 3D viewport
+    (left-drag, `Alt` erases to white). Switching to another bottom-panel tab turns it off.
+  - **Radius (m)**, **Strength**, **Spread** are numeric fields. `Spread` (default **0**) adds a soft
+    gradient around the click; at zero only the clicked element is painted and its neighbours stay
+    untouched.
+  - **Fill Selected** paints the selected faces (disabled until faces are picked), **Fill All** the whole
+    mesh, **White** resets, **Eyedropper** is a mode: arm it and click a vertex — the colour goes into the
+    brush and the mode turns itself off.
+  - **Palette**: `+` stores the current brush colour, right-clicking a swatch opens **Edit colour…** (picker)
+    or **Delete**. It lives in the editor settings (`meshbuilder/paint/palette`) and survives a restart.
+  - Colours live in the mesh data (`MBMeshData.colors`, one per vertex position) and go out as
+    `ARRAY_COLOR`; twins of a point (after cuts or CSG) are painted together. On the first stroke the
+    plugin turns on **vertex colour as albedo** in the mesh's materials — without it the colours reach the
+    mesh but never show on screen.
+  - Brush and eyedropper rays are tested against the mesh's own triangles in its local space, not against
+    physics colliders, so foreign or stale colliders cannot make them hit the wrong face. Every operation
+    is one undo step.
 - **Sharp** marks the selected **edges** as hard (edge mode, key `2`): the face on one side no longer
   averages its normals with the face on the other side, whatever the dihedral angle. Pressing it again on
   edges that are all sharp clears the mark. The mark lives on the edge — stored as a pair of positions, not
