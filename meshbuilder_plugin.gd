@@ -219,12 +219,14 @@ func _enter_tree():
 	_material_panel = dock_scroller
 	if Engine.is_editor_hint():
 		_material_bottom_button = add_control_to_bottom_panel(dock_scroller, "Materials")
+		_give_scrolled_panel_height(dock_scroller, material_dock, 140.0)
 	# Dedicated 2D UV Editor Panel (Bottom dock)
 	uv_editor_panel = MBUvEditorPanel.new()
 	uv_editor_panel.editor = editor
 	uv_editor_panel.plugin = self
 	if Engine.is_editor_hint():
 		_uv_bottom_button = add_control_to_bottom_panel(uv_editor_panel, "UV Editor")
+		_give_scrolled_panel_height(uv_editor_panel, uv_editor_panel, 200.0)
 	uv_editor_panel.pop_out_toggled.connect(_on_uv_pop_out_toggled)
 	# Half-size manipulator gizmos by default (the engine default of 80px is
 	# huge next to MeshBuilder's element work). Respect user customization:
@@ -422,6 +424,32 @@ func _reveal_toolbar_panel(host: Control) -> void:
 			last_need = need
 			stable = 0
 		if stable >= 2 and need > 1.0 and host.size.y >= need:
+			return
+
+## Gives a bottom-panel tab that lives inside a ScrollContainer a real minimum
+## height. A ScrollContainer reports min height 0, so a freshly mounted tab (the
+## Materials one) opens 0 px tall and stays collapsed until the layout is saved;
+## the scroller has to be told the height of what it wraps.
+func _give_scrolled_panel_height(host: Control, content: Control, fallback: float) -> void:
+	if host == null or content == null:
+		return
+	var last := -1.0
+	var stable := 0
+	for _i in 180:
+		await get_tree().process_frame
+		if not is_instance_valid(host) or not is_instance_valid(content):
+			return
+		var need: float = content.get_combined_minimum_size().y
+		if need < fallback:
+			need = fallback
+		if not is_equal_approx(host.custom_minimum_size.y, need):
+			host.custom_minimum_size.y = need
+		if is_equal_approx(need, last):
+			stable += 1
+		else:
+			last = need
+			stable = 0
+		if stable >= 2 and host.size.y >= need - 1.0:
 			return
 
 ## Finds the Node3DEditor that owns the 3D viewports, by walking the editor's
