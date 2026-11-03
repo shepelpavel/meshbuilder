@@ -50,8 +50,9 @@ Godot 4.7 or newer. Pure GDScript — no GDExtension, no C#/.NET build, no nativ
 Copy the `addons/meshbuilder` folder into your project and enable **MeshBuilder** in
 `Project → Project Settings → Plugins`.
 
-The UI lives in the editor's **bottom panel** as four tabs — *MeshBuilder* (toolbar),
-*Materials* (material palette of the selected mesh), *UV Editor* (2D unwrapping and per-face UV/tint) — so the
+The UI lives in the editor's **bottom panel** as three tabs — *MeshBuilder* (toolbar),
+*UV Editor* (2D unwrapping and per-face UV/tint) and *MBPaint* (material palette plus
+vertex-colour painting) — so the
 plugin takes neither rows from the 3D viewport nor the right-hand dock column.
 
 ### No file export
@@ -121,9 +122,9 @@ rsync -a --delete \
 
 Включить в `Проект → Настройки проекта → Плагины → MeshBuilder`.
 
-Всё живёт в **нижней панели** отдельными вкладками — «MeshBuilder» (тулбар), «Materials» (палитра
-материалов выделенного меша), «UV Editor» (2D-развёртка и построчная правка UV/тинта) и «VtxPaint»
-(раскраска вершин): так плагин не
+Всё живёт в **нижней панели** отдельными вкладками — «MeshBuilder» (тулбар), «UV Editor» (2D-развёртка и
+построчная правка UV/тинта) и «MBPaint» (палитра материалов меша и раскраска вершин): так
+плагин не
 отъедает ни строки у 3D-вьюпорта, ни правую колонку доков.
 
 ### Экспорта в файл нет

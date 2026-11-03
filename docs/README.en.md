@@ -12,14 +12,35 @@ sprites, time-of-day presets and the bundled offline documentation are gone.
 - **Language:** pure GDScript — no GDExtension, no C#/.NET, no native binaries
 - **License:** MIT (see `LICENSE`)
 
+## Why MeshBuilder
+
+- **Model props where you place them.** The mesh lives in the scene as a node; there is no export →
+  Blender → import loop and no second copy of the asset to keep in sync.
+- **Real element editing, not just booleans.** Move/rotate/scale vertices, edges and faces; extrude,
+  inset, multi-segment bevel, loop cut, knife that cuts across several faces, subdivide, bridge, connect,
+  weld, tunnel, fill hole.
+- **CSG that keeps your quads.** Union / subtract / intersect run through the engine kernel, and coplanar
+  triangle pairs are welded back into quads afterwards, so a boolean does not turn the untouched sides
+  into triangle soup.
+- **Shading you control.** Auto Smooth smooths everything except the edges you mark **Sharp** (the mark
+  lives on the edge and survives re-runs); **Flat** drops a selection back to hard shading; sharp edges are
+  drawn in orange in edge mode.
+- **Meshes that actually work.** **Check** reports open edges, non-manifold edges, inconsistent winding
+  and self-intersections; **Fix Winding** flips the triangles that make a boolean return nothing.
+- **UV and materials in the same panel.** A 2D UV editor with UV1/UV2, box and LightmapGI unwraps,
+  island selection, per-face tiling; a per-mesh material palette; vertex-colour painting with face /
+  edge / vertex elements and an editable palette.
+- **Nothing extra to install.** Pure GDScript, one folder, no native binaries, works on any platform the
+  editor runs on.
+
 ---
 
 ## Install
 
 1. Copy the `addons/meshbuilder` folder into your project.
 2. `Project → Project Settings → Plugins` → enable **MeshBuilder**.
-3. Three tabs appear in the editor's bottom panel: **MeshBuilder** (toolbar), **Materials** (palette)
-   and **UV Editor**.
+3. Three tabs appear in the editor's bottom panel: **MeshBuilder** (toolbar), **UV Editor**, and
+   **MBPaint** (material palette + vertex-colour painting).
 
 Shortcuts are registered under `Editor Settings → Shortcuts → meshbuilder/…` and rebind like any other.
 Defaults that clash with Godot's own keys are unbound by the plugin on first run (reported in Output).
@@ -34,8 +55,8 @@ The toolbar is three rows of icon groups (groups are separated by vertical lines
 | 2 | **Snap**, **V-Snap**, **Soft** with its radius, Lit / Shadow / X-Ray, mesh operations (Extrude, Inset, Bevel, Subdiv, Merge, Del, Knife, Loop Cut, Connect, Bridge, Tunnel, Fill Hole, Weld, Detach) |
 | 3 | **New Shape**, object operations (Merge Objects, Mirror, Mirror Model, Apply Mirror, Center Pivot, Freeze Transform, MeshBuilderize), **Merge by Dist**, CSG (Union / Subtract / Intersect), tabs and view (Materials, UV, Overlay, Reset Panel, Settings) |
 
-Panels are separate bottom tabs: the toolbar opens on start, `Materials` and `UV Editor` are opened from
-the third row. **Overlay** shows or hides the viewport overlay panel, **Reset Panel** brings it back if it
+Panels are separate bottom tabs: the toolbar opens on start; `Materials` and `UV` on the third row open
+the **MBPaint** and **UV Editor** tabs. **Overlay** shows or hides the viewport overlay panel, **Reset Panel** brings it back if it
 drifted off-screen, **Settings** opens wireframe / selection / hover opacity.
 
 ## Creating geometry
@@ -107,8 +128,9 @@ beveled at all.
   modifier. Re-baking always rebuilds the copy from the current half, so copies never stack. The copy
   inherits everything from the source face: contour shape (a quad stays a quad), UVs, tiling
   rotation/scale, smoothing group and material.
-- The **VtxPaint** tab colours the vertices (vertex colour) of the active mesh. The panel is a single row:
-  modes, brush, numeric fields, fills.
+- The **MBPaint** tab keeps the active mesh's material palette on top and vertex-colour
+  painting below — everything about how a prop looks in one place. The paint row is: modes, brush, numeric
+  fields, fills.
   - **Modes** are icons, same as the modelling toolbar (**Object**, **Vertex**, **Edge**, **Face**); they
     also switch the editor's element mode. The mode decides what a click paints: **Face** — the whole face
     under the cursor, **Edge** — the two ends of the nearest edge, **Vertex** — the nearest vertex,
