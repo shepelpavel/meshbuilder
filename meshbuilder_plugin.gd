@@ -87,6 +87,7 @@ func _get_plugin_name() -> String:
 
 
 func _enter_tree():
+	set_process_input(true)
 	logger.info("plugin", "MeshBuilder entering tree")
 
 	# Receive 3D viewport input even with NOTHING selected: shape creation is
@@ -452,6 +453,7 @@ func _paint_target() -> MBMesh:
 	return mesh
 
 func _on_paint_fill_selected(color: Color) -> void:
+	_focus_3d_viewport()
 	var mesh := _paint_target()
 	if mesh == null:
 		_op_hint("Paint: select an MBMesh first")
@@ -467,6 +469,7 @@ func _on_paint_fill_selected(color: Color) -> void:
 	_paint_finish(mesh, before, "Paint Selected Faces", touched)
 
 func _on_paint_fill_all(color: Color) -> void:
+	_focus_3d_viewport()
 	var mesh := _paint_target()
 	if mesh == null:
 		_op_hint("Paint: select an MBMesh first")
@@ -477,6 +480,7 @@ func _on_paint_fill_all(color: Color) -> void:
 	_paint_finish(mesh, before, "Paint Whole Mesh", touched)
 
 func _on_paint_reset(color: Color) -> void:
+	_focus_3d_viewport()
 	var mesh := _paint_target()
 	if mesh == null:
 		_op_hint("Paint: select an MBMesh first")
@@ -487,6 +491,7 @@ func _on_paint_reset(color: Color) -> void:
 	_paint_finish(mesh, before, "Reset Vertex Colors", touched)
 
 func _on_paint_eyedropper_toggled(active: bool) -> void:
+	_focus_3d_viewport()
 	if not active:
 		_op_hint("Eyedropper off")
 		return
@@ -522,8 +527,22 @@ func _eyedropper_input(camera: Camera3D, event: InputEvent) -> int:
 	_paint_log("eyedropper: picked %s" % color.to_html(false))
 	return AFTER_GUI_INPUT_STOP
 
+## Hands keyboard focus back to the 3D viewport. Plugin shortcuts live in
+## _forward_3d_gui_input, which only receives events while the viewport has
+## focus — after clicking a button or a spin box in a bottom-panel tab, E / G / R
+## went nowhere until the user clicked the scene again.
+func _focus_3d_viewport() -> void:
+	var base := get_editor_interface().get_base_control()
+	if base == null:
+		return
+	for n in base.find_children("*", "Node3DEditorViewport", true, false):
+		if n is Control and (n as Control).is_visible_in_tree():
+			(n as Control).grab_focus()
+			return
+
 ## Element-mode shortcut from the Paint tab.
 func _on_paint_mode_requested(mode: int) -> void:
+	_focus_3d_viewport()
 	var target := MBEditor.SelectMode.OBJECT
 	match mode:
 		1: target = MBEditor.SelectMode.VERTEX
@@ -535,6 +554,7 @@ func _on_paint_mode_requested(mode: int) -> void:
 	_paint_log("mode -> %d" % mode)
 
 func _on_paint_brush_toggled(active: bool) -> void:
+	_focus_3d_viewport()
 	_op_hint("Paint brush ON — drag in the viewport to paint, Alt erases" if active else "Paint brush off")
 
 func _paint_finish(mesh: MBMesh, before: MBMeshData, action_name: String, touched: int) -> void:
@@ -777,6 +797,38 @@ func _make_visible(visible: bool) -> void:
 ## element picking (its hit test runs first), and presses that miss the gizmo
 ## fall through to subgizmo selection / rubber-band. Interception here is what
 ## broke gizmo drags in earlier rounds.
+## Viewport keys are handled in the INPUT phase, before the editor's own
+## transform-mode shortcuts. The 3D viewport only forwards _forward_3d_gui_input
+## for events its Control actually receives, and the native Q/W/E/R transform
+## shortcuts fire from the viewport's own shortcut handling — so E rotated the
+## selection instead of extruding whenever the key never reached the plugin.
+func _input(event: InputEvent) -> void:
+	if not (event is InputEventKey):
+		return
+	var key := event as InputEventKey
+	if not key.pressed or key.echo:
+		return
+	if _text_field_has_focus() or _is_navigating_view():
+		return
+	if editor.active_mesh == null and not shape_creator.is_active() and not ngon_drawer.is_active():
+		return
+	var action := MBActions.action_for(key, _settings)
+	if action == &"":
+		return
+	_handle_action_key(key)
+	get_viewport().set_input_as_handled()
+
+## True while a text entry owns the keyboard (scene name, inspector fields,
+## spin boxes): plugin letters must not be stolen from typing.
+func _text_field_has_focus() -> bool:
+	var vp := get_viewport()
+	if vp == null:
+		return false
+	var owner := vp.gui_get_focus_owner()
+	if owner == null:
+		return false
+	return owner is LineEdit or owner is TextEdit or owner is CodeEdit
+
 func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
 	# Feed the live cursor to the element editor — the extrude gesture drives
 	# the cap distance from the mouse (see MBElementEditor.track_mouse).
