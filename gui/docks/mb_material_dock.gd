@@ -16,7 +16,7 @@ var editor: MBEditor = null:
 
 var _vbox: VBoxContainer
 var _material_grid: HFlowContainer
-var _status_label: Label
+var _last_status_text: String = ""
 var _file_dialog: EditorFileDialog
 var _context_menu: PopupMenu
 var _context_material: Material = null
@@ -101,10 +101,8 @@ func _build_ui() -> void:
 
 	_vbox.add_child(HSeparator.new())
 
-	_status_label = Label.new()
-	_status_label.text = "No MBMesh selected"
-	_status_label.add_theme_color_override("font_color", Color(0.7, 0.75, 0.8))
-	_vbox.add_child(_status_label)
+	# Status lives in the viewport banner (same place the modelling tools report),
+	# not as a line of service text under the palette.
 
 # ==============================================================================
 # Palette contents: the ACTIVE MESH's materials
@@ -354,38 +352,36 @@ func _palette_is_stale() -> bool:
 			return true
 	return false
 
-## Short-lived message that the next `_update_status()` must not swallow.
+## Short-lived message: shown in the banner right away.
 func _flash_status(text: String) -> void:
-	if _status_label == null:
-		return
-	_status_label.text = text
-	if _hint_timer == null:
-		_hint_timer = Timer.new()
-		_hint_timer.one_shot = true
-		_hint_timer.timeout.connect(_on_hint_timeout)
-		add_child(_hint_timer)
-	_hint_timer.start(3.0)
+	_last_status_text = ""
+	_set_status(text)
 
-func _on_hint_timeout() -> void:
-	_update_status()
+## Routes a status line to the viewport banner instead of drawing it inside the
+## panel. Repeated text is dropped so the banner is not spammed by refreshes.
+func _set_status(text: String) -> void:
+	if text == _last_status_text:
+		return
+	_last_status_text = text
+	if plugin != null and plugin.has_method("_op_hint"):
+		plugin._op_hint(text)
 
 func _update_status() -> void:
-	if _status_label == null:
-		return
 	var mesh := _active_mesh()
 	if mesh == null or mesh.mb_mesh_data == null:
-		_status_label.text = "No MBMesh selected — materials are added per mesh"
+		_set_status("Materials: no MBMesh selected — materials are added per mesh")
 		return
 	var slots := _mesh_materials.size()
 	var faces := 0
 	if editor != null and editor.selection != null:
 		faces = editor.selection.selected_faces.size()
 	if faces > 0:
-		_status_label.text = "%d face(s) · %d material(s) on %s" % [faces, slots, mesh.name]
+		_set_status("Materials: %d face(s) · %d material(s) on %s" % [faces, slots, mesh.name])
 	elif editor != null and editor.select_mode == MBEditor.SelectMode.OBJECT:
-		_status_label.text = "%d material(s) · applies to ALL faces of %s" % [slots, mesh.name]
+		_set_status("Materials: %d material(s) · applies to ALL faces of %s" % [slots, mesh.name])
 	else:
-		_status_label.text = "%d material(s) on %s · no faces selected" % [slots, mesh.name]
+		_set_status("Materials: %d material(s) on %s · no faces selected" % [slots, mesh.name])
+
 
 # ==============================================================================
 # Applying to faces

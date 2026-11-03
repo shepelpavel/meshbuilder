@@ -374,3 +374,18 @@ func force_eyedropper_off() -> void:
 func take_picked_color(color: Color) -> void:
 	_set_color(color)
 	set_eyedropper(false)
+
+## The material palette used to be its own bottom-panel tab; it now lives under
+## the paint controls inside this panel, so a prop's material and its vertex
+## colours are edited in one place.
+func attach_materials(material_control: Control) -> void:
+	if material_control == null:
+		return
+	var column := get_child(0).get_child(0) if get_child_count() > 0 else null
+	var host: Control = column if column != null else self
+	var sep := HSeparator.new()
+	sep.name = "PaintMaterialsSeparator"
+	host.add_child(sep)
+	material_control.name = "MaterialPanel"
+	material_control.custom_minimum_size.y = 150
+	host.add_child(material_control)

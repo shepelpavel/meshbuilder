@@ -220,10 +220,10 @@ func _enter_tree():
 	dock_scroller.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	dock_scroller.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	dock_scroller.add_child(material_dock)
+	# The material palette is not its own tab any more: it is attached inside the
+	# paint panel below (see attach_materials), so one bottom tab holds both.
 	_material_panel = dock_scroller
-	if Engine.is_editor_hint():
-		_material_bottom_button = add_control_to_bottom_panel(dock_scroller, "Materials")
-		_give_scrolled_panel_height(dock_scroller, material_dock, 140.0)
+	_material_bottom_button = null
 	# Dedicated 2D UV Editor Panel (Bottom dock)
 	uv_editor_panel = MBUvEditorPanel.new()
 	uv_editor_panel.editor = editor
@@ -238,10 +238,10 @@ func _enter_tree():
 	paint_panel = MBPaintPanel.new()
 	paint_panel.name = "PaintPanel"
 	if Engine.is_editor_hint():
-		_paint_bottom_button = add_control_to_bottom_panel(paint_panel, "VtxPaint")
-		# Small floor only: the tab is one row of controls plus the palette, and a
-		# fixed 150 px left a band of empty space under it.
-		_give_scrolled_panel_height(paint_panel, paint_panel, 66.0)
+		_paint_bottom_button = add_control_to_bottom_panel(paint_panel, "MBPaint")
+		# Paint row + colour palette + the material palette underneath.
+		_give_scrolled_panel_height(paint_panel, paint_panel, 230.0)
+		paint_panel.attach_materials(_material_panel)
 	paint_panel.request_fill_selected.connect(_on_paint_fill_selected)
 	paint_panel.request_fill_all.connect(_on_paint_fill_all)
 	paint_panel.request_reset.connect(_on_paint_reset)
@@ -1702,8 +1702,8 @@ func _on_display_reset() -> void:
 func focus_material_dock() -> void:
 	if material_dock == null:
 		return
-	if _material_panel != null and Engine.is_editor_hint():
-		make_bottom_panel_item_visible(_material_panel)
+	if paint_panel != null and Engine.is_editor_hint():
+		make_bottom_panel_item_visible(paint_panel)
 	material_dock.show()
 	material_dock.sync_selection()
 
