@@ -57,11 +57,24 @@ static func extrude_faces(mesh_data: MBMeshData, face_ids: PackedInt32Array,
 	# untouched mesh — moving them would drag the neighbors along).
 	var drag_positions := PackedInt32Array()
 
-	for region: PackedInt32Array in _face_regions(mesh_data, face_ids):
-		var dir := _region_normal(mesh_data, region)
-		if dir.length_squared() < 0.5:
-			return _fail("Extrude faces: degenerate region normal")
-		var offset := dir.normalized() * distance
+	# A selection can span several sides of a solid (whole plate: top + bottom +
+	# rims). Such a set has NO common normal — the area-weighted sum cancels out
+	# — so it is split into direction groups and every side is extruded along
+	# its OWN normal instead of failing with "degenerate region normal".
+	var regions: Array = []
+	for group: PackedInt32Array in _face_id_groups_by_normal(mesh_data, face_ids):
+		for region: PackedInt32Array in _face_regions(mesh_data, group):
+			regions.append(region)
+
+	for region: PackedInt32Array in regions:
+		# `_region_normal` is an area-weighted VECTOR (sum of 2*area*normal), not
+		# a unit normal — the zero test must be near-zero, not "shorter than a
+		# unit vector": a 20cm face has |n| = 0.2 and was rejected as
+		# degenerate, which is why extrude died on every face smaller than ~0.35 m².
+		var area_normal := _region_normal(mesh_data, region)
+		if area_normal.length_squared() < 0.00000001:
+			return _fail(_degenerate_region_hint(mesh_data, region))
+		var offset := area_normal.normalized() * distance
 
 		# Each region face gets its own private cap copy (position privacy).
 		for fi in region:
@@ -4044,6 +4057,45 @@ static func _split_edge_in_adjacent_faces(
 
 static func _fail(reason: String) -> Dictionary:
 	return {"ok": false, "error": reason}
+
+## Splits face ids into groups of (nearly) the same normal direction, so a
+## selection covering several sides of a solid can be extruded side by side.
+## Zero-area faces land in their own "-" group and fail later with a readable
+## message instead of poisoning the normal sum of a healthy region.
+static func _face_id_groups_by_normal(mesh_data: MBMeshData, face_ids: PackedInt32Array) -> Array:
+	var by_key: Dictionary = {}
+	var order: Array = []
+	for fi in face_ids:
+		var key := Vector3i(-99999, -99999, -99999)
+		var n := _face_area_normal(mesh_data, mesh_data.faces[fi])
+		if n.length_squared() > 0.000001:
+			var nn := n.normalized()
+			key = Vector3i(roundi(nn.x * 1000.0), roundi(nn.y * 1000.0), roundi(nn.z * 1000.0))
+		if not by_key.has(key):
+			by_key[key] = PackedInt32Array()
+			order.append(key)
+		var group: PackedInt32Array = by_key[key]
+		group.append(fi)
+		by_key[key] = group
+	var out: Array = []
+	for key in order:
+		out.append(by_key[key])
+	return out
+
+## Why a region has no usable normal: the faces themselves are flat/degenerate,
+## or they point in opposite directions (top + bottom of a plate) so the
+## area-weighted sum cancels out. The two cases need different fixes from the
+## user, so they must not share one message.
+static func _degenerate_region_hint(mesh_data: MBMeshData, region: PackedInt32Array) -> String:
+	var flat := 0
+	for fi in region:
+		if _face_area_normal(mesh_data, mesh_data.faces[fi]).length_squared() < 0.00000001:
+			flat += 1
+	if flat == region.size():
+		return "Extrude faces: the selected face has zero area (degenerate geometry)"
+	if region.size() > 1:
+		return "Extrude faces: the selected faces point in different directions — extrude one side at a time"
+	return "Extrude faces: degenerate region normal"
 
 ## Walks the directed boundary edges of a face region into one ordered cycle
 ## of raw position indexes (following shared-group keys). Returns [] when the
