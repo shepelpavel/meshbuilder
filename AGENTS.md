@@ -116,6 +116,14 @@ done
   двойное освобождение убивает процесс SIGABRT без внятного стектрейса.
 - **Новый скрипт на диске не виден редактору** до скана: в живом редакторе MCP — `filesystem_manage(op="scan")`,
   иначе `--check-only` видит класс, а редактируемая сцена — нет.
+- **После `git mv`/удаления скриптов Godot ищет старые пути** — виноват кэш `.godot/uid_cache.bin`: скан его не
+  чинит, а редактор при автосейве пишет старые uid→path обратно. Лечение: закрыть редактор, удалить
+  `.godot/uid_cache.bin`, открыть проект заново (кэш пересобирается из `*.uid`). Проверка — лог запуска без
+  `invalid UID` и `ProjectSettings.get_global_class_list()` с новыми путями.
+- **Плагин можно уронить настройкой редактора, а не кодом:** перетаскивание панелей валит процесс в
+  `accesskit_unix … InterfaceNotFound` (SIGABRT). Лечится флагом `--accessibility disabled` или строкой
+  `interface/accessibility/accessibility_support = 2` в настройках редактора — POSIX
+  `~/.config/godot/editor_settings-4.<N>.tres`, Windows `%APPDATA%\Godot\editor_settings-4.<N>.tres`.
 
 ## Релиз
 
