@@ -183,8 +183,10 @@ beveled at all.
   again, while the shapes the kernel actually produced at the cut stay as they are (triangles and
   n-gons). "Everything turned into triangles after CSG" no longer happens. Order matters: the first
   selected mesh is the target, the last one the cutter — but the editor hands the selection over in scene
-  tree order, not click order, so when a subtract leaves nothing the plugin runs the mirrored one
-  (`cutter − target`) and says so in the banner: `Subtract reversed: A − B`.
+  tree order, not click order, so the roles may not match what you clicked. An empty result is refused with a
+  reason: the cutter swallowed the whole target, or the target is not a valid solid (re-bake it through
+  **MeshBuilderize**). There is no automatic `cutter − target` fallback: swapping silently hid the real
+  cause, and **Check** / **Fix Winding** are the tools that find it.
 - **Lit / Shadow** toggle shading and shadow casting on the selected objects.
 
 ## Materials
