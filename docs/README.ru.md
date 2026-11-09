@@ -54,10 +54,11 @@ MeshBuilder превращает 3D-вьюпорт редактора Godot в �
 |---|---|
 | 1 | режимы (Object / Vertex / Edge / Face / Texture), Move / Rotate / Scale, Space гизмо, операции выделения (All, Invert, Grow, Shrink, Coplanar, Similar, Boundary, Loop, Ring), Auto Smooth, **Flat**, **Sharp** |
 | 2 | **Snap**, **V-Snap**, **Soft** с радиусом, Lit / Shadow / X-Ray, операции меша (Extrude, Inset, Bevel, Subdiv, Merge, Del, Knife, Loop Cut, Connect, Bridge, Tunnel, Fill Hole, Weld, Detach) |
-| 3 | **New Shape**, объектные операции (Merge Objects, Mirror, Mirror Model, Apply Mirror, Center Pivot, Freeze Transform, MeshBuilderize), **Merge by Dist**, CSG (Union / Subtract / Intersect), вкладки и вид (Materials, UV, Overlay, Reset Panel, Settings) |
+| 3 | **New Shape**, объектные операции (Merge Objects, Mirror, Mirror Model, Apply Mirror, Center Pivot, Freeze Transform, MeshBuilderize), **Merge by Dist**, Check / Fix Winding, CSG (Union / Subtract / Intersect), кнопки панелей и вид (Materials, UV, Overlay, Reset Panel, Settings) |
 
-Панели — отдельные вкладки внизу: тулбар открыт при старте, `Materials` и `UV Editor` раскрываются
-кнопками третьего ряда. **Overlay** показывает/прячет панель-оверлей во вьюпорте, **Reset Panel**
+Панели — вкладки внизу: `MeshBuilder` открыт при старте; кнопка **Materials** третьего ряда раскрывает
+вкладку **MBPaint** (палитра материалов + раскраска вершин), кнопка **UV** — вкладку **UV Editor**.
+**Overlay** показывает/прячет панель-оверлей во вьюпорте, **Reset Panel**
 возвращает её, если та ушла за край, **Settings** открывает прозрачность каркаса, выделения и ховера.
 
 ## Создание геометрии
@@ -186,9 +187,9 @@ torus, n-gon.
 
 ## Материалы
 
-Вкладка **Materials** — палитра **выделенного меша**. Карточки — это его собственные материалы
-(слоты `materials`): у каждого меша свой набор, проект не сканируется и ничего не подтягивается
-автоматически.
+Палитра материалов — нижний блок вкладки **MBPaint**, под строкой раскраски: это палитра **выделенного
+меша**. Карточки — его собственные материалы (слоты `materials`): у каждого меша свой набор, проект не
+сканируется и ничего не подтягивается автоматически.
 
 - `+ Add` — добавить материал в текущий меш: `.tres` / `.material` подключается как есть, текстура
   (`.png` / `.jpg` / `.webp`) оборачивается в `StandardMaterial3D` с прозрачностью из картинки.
@@ -269,6 +270,12 @@ torus, n-gon.
 - Операция, которой нечего делать (пустое выделение, Object-режим, нулевое расстояние), сообщает причину
   в верхней панели вьюпорта на несколько секунд.
 - Вершинный цвет (**Tint**) виден только в материалах, которые используют цвет вершин как albedo.
+
+## История и решения
+
+Решения по устройству плагина — в `docs/rfc/` (индекс и состояние версии — `docs/rfc/README.md`): RFC 0001 —
+переход с PoiBuilder на MeshBuilder (что вырезано и почему), 0002 — UI в нижней панели, 0003 — операции меша,
+0004 — сглаживание и проверка меша, 0005 — зеркало, 0006 — материалы и UV, 0007 — раскраска вершин.
 
 ## Проверка изменений
 

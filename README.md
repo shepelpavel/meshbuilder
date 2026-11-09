@@ -5,6 +5,8 @@ UV editor, CSG booleans. Fork of [PoiBuilder](https://github.com/Francesco149/po
 trimmed down to prop modeling.
 
 Full manual: [English](docs/README.en.md) · [по-русски](docs/README.ru.md).
+Decision record: [docs/rfc/README.md](docs/rfc/README.md) — why the fork, what was cut, and the per-system
+decisions (0001–0007).
 Русское краткое описание — ниже, раздел «По-русски».
 
 ## English
@@ -32,7 +34,7 @@ new shapes. A dedicated 2D UV editor with UV1 and UV2 channels, box unwrap, Ligh
 island selection and snapping — plus a per-face row (tiling, offset, rotation, flips, vertex-colour
 tint).
 
-**Vertex colour painting.** A dedicated *VtxPaint* tab: a brush that paints vertex colours in the
+**Vertex colour painting.** A dedicated *MBPaint* tab: a brush that paints vertex colours in the
 viewport (element modes decide whether a click paints the face under the cursor, the nearest edge's ends or
 the nearest vertex), fill-selected / fill-all / reset, an eyedropper mode, numeric radius / strength /
 spread and an editable colour palette stored in the editor settings. Colours go out as `ARRAY_COLOR`.
@@ -93,7 +95,7 @@ bridge, connect, tunnel, fill hole, detach, delete. Всё с превью и п
 новых фигур. Отдельный 2D UV-редактор: каналы UV1 и UV2, box-unwrap, развёртка для LightmapGI,
 острова, снап — плюс строка «Face:» для граней (тайлинг, офсет, угол, флипы, тинт вершинным цветом).
 
-**Раскраска вершин.** Отдельная вкладка «VtxPaint»: кисть по вершинам в вьюпорте (режим элемента решает,
+**Раскраска вершин.** Отдельная вкладка «MBPaint»: кисть по вершинам в вьюпорте (режим элемента решает,
 что красит клик — грань под курсором, концы ближайшего ребра или ближайшую вершину), заливка выделенного /
 всего меша / сброс, режим пипетки, числовые радиус / сила / растекание и редактируемая палитра, которая
 хранится в настройках редактора. Цвета уходят в `ARRAY_COLOR`.

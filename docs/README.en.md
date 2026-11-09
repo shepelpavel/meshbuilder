@@ -53,10 +53,11 @@ The toolbar is three rows of icon groups (groups are separated by vertical lines
 |---|---|
 | 1 | modes (Object / Vertex / Edge / Face / Texture), Move / Rotate / Scale, gizmo Space, selection operations (All, Invert, Grow, Shrink, Coplanar, Similar, Boundary, Loop, Ring), Auto Smooth, **Flat**, **Sharp** |
 | 2 | **Snap**, **V-Snap**, **Soft** with its radius, Lit / Shadow / X-Ray, mesh operations (Extrude, Inset, Bevel, Subdiv, Merge, Del, Knife, Loop Cut, Connect, Bridge, Tunnel, Fill Hole, Weld, Detach) |
-| 3 | **New Shape**, object operations (Merge Objects, Mirror, Mirror Model, Apply Mirror, Center Pivot, Freeze Transform, MeshBuilderize), **Merge by Dist**, CSG (Union / Subtract / Intersect), tabs and view (Materials, UV, Overlay, Reset Panel, Settings) |
+| 3 | **New Shape**, object operations (Merge Objects, Mirror, Mirror Model, Apply Mirror, Center Pivot, Freeze Transform, MeshBuilderize), **Merge by Dist**, Check / Fix Winding, CSG (Union / Subtract / Intersect), panel and view buttons (Materials, UV, Overlay, Reset Panel, Settings) |
 
-Panels are separate bottom tabs: the toolbar opens on start; `Materials` and `UV` on the third row open
-the **MBPaint** and **UV Editor** tabs. **Overlay** shows or hides the viewport overlay panel, **Reset Panel** brings it back if it
+Panels live in the bottom dock: `MeshBuilder` opens on start; the **Materials** button on the third row opens
+the **MBPaint** tab (material palette + vertex-colour painting), **UV** opens the **UV Editor**.
+**Overlay** shows or hides the viewport overlay panel, **Reset Panel** brings it back if it
 drifted off-screen, **Settings** opens wireframe / selection / hover opacity.
 
 ## Creating geometry
@@ -188,9 +189,9 @@ beveled at all.
 
 ## Materials
 
-The **Materials** tab is the palette of the **selected mesh**. Its cards are that mesh's own materials
-(its `materials` slots): every mesh keeps its own set, the project is not scanned and nothing is pulled
-in automatically.
+The material palette sits in the lower part of the **MBPaint** tab, below the paint row: it is the palette of
+the **selected mesh**. Its cards are that mesh's own materials (its `materials` slots): every mesh keeps its
+own set, the project is not scanned and nothing is pulled in automatically.
 
 - `+ Add` — add a material to the current mesh: `.tres` / `.material` is taken as is, a texture
   (`.png` / `.jpg` / `.webp`) is wrapped into a `StandardMaterial3D` with transparency read from the
@@ -272,6 +273,12 @@ generated `ArrayMesh` can be saved from the node inspector.
 - An operation with nothing to do (empty selection, Object mode, zero distance) reports the reason in the
   viewport's top banner for a few seconds.
 - The vertex-colour **Tint** shows only in materials that use vertex colour as albedo.
+
+## History and decisions
+
+Design decisions live in `docs/rfc/` (index and current state: `docs/rfc/README.md`): RFC 0001 covers the move
+from PoiBuilder to MeshBuilder (what was cut and why), 0002 the bottom-panel UI, 0003 mesh operations, 0004
+smoothing and mesh health, 0005 mirroring, 0006 materials and UVs, 0007 vertex-colour painting.
 
 ## Checking changes
 
