@@ -52,7 +52,7 @@ The toolbar is three rows of icon groups (groups are separated by vertical lines
 | Row | Contents |
 |---|---|
 | 1 | modes (Object / Vertex / Edge / Face / Texture), Move / Rotate / Scale, gizmo Space, selection operations (All, Invert, Grow, Shrink, Coplanar, Similar, Boundary, Loop, Ring), Auto Smooth, **Flat**, **Sharp** |
-| 2 | **Snap**, **V-Snap**, **Soft** with its radius, Lit / Shadow / X-Ray, mesh operations (Extrude, Inset, Bevel, Subdiv, Merge, Del, Knife, Loop Cut, Connect, Bridge, Tunnel, Fill Hole, Weld, Detach) |
+| 2 | **V-Snap**, **Soft** with its radius, Lit / Shadow / X-Ray, mesh operations (Extrude, Inset, Bevel, Subdiv, Merge, Del, Knife, Loop Cut, Connect, Bridge, Tunnel, Fill Hole, Weld, Detach) |
 | 3 | **New Shape**, object operations (Merge Objects, Mirror, Mirror Model, Apply Mirror, Center Pivot, Freeze Transform, MeshBuilderize), **Merge by Dist**, Check / Fix Winding, CSG (Union / Subtract / Intersect), panel and view buttons (Materials, UV, Overlay, Reset Panel, Settings) |
 
 Panels live in the bottom dock: `MeshBuilder` opens on start; the **Materials** button on the third row opens
@@ -81,11 +81,17 @@ While the camera is flying (RMB or the wheel held) the plugin's shortcuts stay o
 keys go to the editor.
 
 - click selects one element, rubber band selects a group, `Shift` adds, `Ctrl` removes;
+- `A` selects everything in the current mode (same as the **All** button);
 - **edges:** `Alt+click` or double-click selects the edge loop, `Shift+Alt+click` the edge ring;
 - `Ctrl+I` inverts, `Alt+G` / `Alt+Shift+G` grow/shrink, `Alt+C` selects coplanar faces, the **Similar**
   and **Boundary** buttons cover coplanar look-alikes and open borders;
 - **V-Snap** snaps to the nearest vertex, **Soft** enables proportional editing with a radius;
-- **X-Ray** (`Alt+Z`) makes the mesh translucent so back faces are visible and pickable. With X-Ray
+- **Scale with several disjoint parts selected** (say, the top and the bottom face of a beam) scales every
+  part **about its own centre**: the parts grow and shrink in place instead of flying apart from the shared
+  pivot. A single connected part scales as usual;
+- **X-Ray** (`Alt+Z`) makes the mesh translucent so back faces are visible and pickable. The mode belongs to
+  the MESH, not to the selection: clicking empty space (dropping the selection) keeps it on and the toolbar
+  button stays pressed; `Alt+Z` or the same button turns it off. With X-Ray
   **off**, hidden elements are not pickable: clicks and marquee take only what you can see.
 
 ## Mesh operations
@@ -225,10 +231,18 @@ step (1/32 … 1, 1/8 by default).
 
 ## Grid and snapping
 
-Snapping follows the **Godot grid**: the step comes from the editor's Snap Settings dialog (1 m cell when
-that is unavailable). The plugin draws no grid of its own — you see the editor's grid. `Y` or the toolbar
-**Snap** button toggles snapping; it applies to new shapes and to dragging elements alike. **V-Snap** is a
-separate magnet to the nearest mesh vertex while dragging, **Soft** is proportional editing with a radius.
+The plugin has no snap button of its own — snapping is the editor's. The **Use Snap** button of Godot's 3D
+viewport toolbar (`Y`) turns it on, and the step is the editor's **Snap Settings** translate value (1 m by
+default). The same step drives element drags, new shapes and n-gons. Turn snapping off in the editor and
+MeshBuilder stops snapping too. The plugin draws no grid of its own — you see the editor's grid.
+While dragging, the selection snaps **by its own vertex**, not by its centre: the corner closest to a grid
+line after the move is the one that lands on it (a centroid sits between the ticks and used to drag the
+whole selection off the grid). Intra-selection offsets are preserved — the selection moves rigidly.
+**V-Snap** is a separate magnet to the nearest mesh vertex while dragging, **Soft** is proportional editing
+with a radius. **Snap Selection To Grid** (unbound by default) snaps the selection regardless of the toggle.
+`Shift` while dragging divides the snap step by 10 — the editor's own fine snap: on a 1 m grid elements
+move in 10 cm steps. In face/edge mode `Shift+Move` is the extrude gesture, so there press `Shift` after
+the drag has already started.
 
 ## Keyboard reference
 
@@ -245,12 +259,13 @@ separate magnet to the nearest mesh vertex while dragging, **Soft** is proportio
 | `Shift+B` | Bridge Edges |
 | `M` | Merge (weld selected vertices) |
 | `X` | delete by mode |
+| `A` | select everything in the current mode (vertices / edges / faces) |
 | `Ctrl+I` | invert selection |
 | `Alt+G` / `Alt+Shift+G` | grow / shrink selection |
 | `Alt+C` | select coplanar |
 | `Alt+L` / `Alt+R` | face loop / face ring |
 | `Alt+Z` | X-Ray |
-| `Y` | toggle snapping |
+| `Y` | toggle snapping (Godot's own **Use Snap** in the 3D viewport toolbar) |
 
 Every binding is rebindable in the editor settings; clashes with Godot's own keys are cleared on first
 run.

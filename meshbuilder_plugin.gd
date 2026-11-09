@@ -112,6 +112,7 @@ func _enter_tree():
 	_wire_creation_vertex_snap()
 	tool_bridge.logger = logger
 	tool_bridge.on_tool_selected = _on_engine_tool_selected
+	tool_bridge.on_snap_state_changed = _on_engine_snap_changed
 
 	# Register every plugin action into the editor's shortcut store (rebinds
 	# live in Editor Settings → Shortcuts like native editor commands) and
@@ -148,7 +149,6 @@ func _enter_tree():
 	toolbar.set_editing_active(false)
 	toolbar.shape_requested.connect(_on_shape_requested)
 	toolbar.operation_requested.connect(_on_operation_requested)
-	toolbar.snap_toggled.connect(_on_toolbar_snap_toggled)
 	toolbar.overlay_toggled.connect(_on_overlay_toggled)
 	toolbar.reset_panel_requested.connect(_on_reset_panel_requested)
 	toolbar.materials_dock_requested.connect(focus_material_dock)
@@ -275,9 +275,11 @@ func _enter_tree():
 			logger.info("plugin", "Tool bridge attached to the editor's Move/Rotate/Scale buttons; Q/V pin out while editing")
 		else:
 			logger.warn("plugin", "Engine tool buttons not found — plugin tool modes will not drive the editor gizmo")
-		# The engine's View-Grid menu + Snap Settings dialog live under the
-		# editor's main tree, not the Node3DEditor subtree.
-		tool_bridge.find_editor_menus(get_editor_interface().get_base_control())
+		# Grid snapping is the editor's own: the Spatial Editor "Use Snap"
+		# toggle is the switch (followed live through the bridge), the step is
+		# the editor's translate snap value (read by MBGrid itself).
+		grid.enabled = tool_bridge.engine_snap_enabled()
+		logger.info("plugin", "Grid snapping follows the editor's Use Snap toggle (%s)" % ("ON" if grid.enabled else "OFF"))
 	else:
 		logger.warn("plugin", "Node3DEditor not found — tool bridge inactive")
 
@@ -951,16 +953,14 @@ func _knife_weld_tolerance(md: MBMeshData) -> float:
 ## `test_navigating` exists because headless tests cannot press a mouse button.
 var test_navigating: bool = false
 
-## Toolbar Snap button: same switch as the Y shortcut.
-func _on_toolbar_snap_toggled(enabled: bool) -> void:
+## The editor's own "Use Snap" toggle flipped (Spatial Editor toolbar, Y):
+## MeshBuilder's grid snapping follows it — one switch, one step, one place.
+func _on_engine_snap_changed(enabled: bool) -> void:
 	grid.enabled = enabled
+	if editor.active_mesh != null:
+		editor.active_mesh.update_gizmos()
 	if logger:
-		logger.info("tools", "Snapping %s (toolbar)" % ("ON" if enabled else "OFF"))
-
-## Keeps the toolbar button in step with the snapping state (Y, plugin logic).
-func _sync_snap_button() -> void:
-	if toolbar != null:
-		toolbar.sync_snap(grid.enabled)
+		logger.info("tools", "Snapping %s (editor Use Snap)" % ("ON" if enabled else "OFF"))
 
 func _is_navigating_view() -> bool:
 	if test_navigating:
@@ -1000,15 +1000,14 @@ func _handle_action_key(key_event: InputEventKey) -> int:
 			if not node_selected:
 				return AFTER_GUI_INPUT_PASS
 			editor.select_mode = MBEditor.SelectMode.OBJECT
-		&"toggle_snap":
+		&"snap_selection":
 			if not (editing or editor.active_mesh != null or shape_creator.is_active() or ngon_drawer.is_active()):
 				return AFTER_GUI_INPUT_PASS
-			grid.enabled = not grid.enabled
-			_sync_snap_button()
-			if logger:
-				logger.info("tools", "Snapping %s" % ("ON" if grid.enabled else "OFF"))
+			_on_snap_selection_to_grid()
 		&"toggle_xray":
-			if not node_selected:
+			# Also allowed with nothing selected while the mode is ON — otherwise
+			# the only way out of a translucent mesh would be re-selecting it.
+			if not node_selected and not xray_on:
 				return AFTER_GUI_INPUT_PASS
 			set_xray(not xray_on)
 		&"tool_move":
@@ -1141,7 +1140,7 @@ func _on_snap_selection_to_grid() -> void:
 		if idx < 0 or idx >= mesh_data.positions.size():
 			continue
 		var world: Vector3 = mesh.global_transform.origin + basis * mesh_data.positions[idx]
-		var snapped := grid.snap_point(world)
+		var snapped := grid.snap_point_always(world)
 		var local: Vector3 = inv * (snapped - mesh.global_transform.origin)
 		if not (mesh_data.positions[idx] as Vector3).is_equal_approx(local):
 			mesh_data.positions[idx] = local
@@ -1591,16 +1590,17 @@ func _on_engine_tool_selected(tool: int) -> void:
 func _update_editing_context() -> void:
 	var mesh_selected := editor.active_mesh != null
 	if xray_on:
-		if editor.active_mesh == null:
+		# X-Ray belongs to the MESH, not to the selection: clicking empty space
+		# (nothing selected) must not switch it off, and picking another mesh
+		# moves it over. Only a node freed under us drops the mode.
+		if _xray_node == null or not is_instance_valid(_xray_node):
 			set_xray(false)
-		elif editor.active_mesh != _xray_node:
+		elif mesh_selected and editor.active_mesh != _xray_node:
 			set_xray(true)
 	var editing := editor.is_editing()
 	toolbar.set_editing_active(mesh_selected)
-	_sync_snap_button()
 	tool_overlay.update_visibility()
 	if tool_bridge.is_ready():
-		grid.set_engine_step(tool_bridge.engine_snap_translate())
 		tool_bridge.set_editing_active(editing)
 		if editing:
 			tool_bridge.editor_space = editor.orientation_space
@@ -2182,8 +2182,10 @@ func _on_operation_requested(op_name: String) -> void:
 			return
 
 	if not result.get("ok", false):
+		var err := String(result.get("error", "failed"))
 		if logger:
-			logger.warn("mesh_ops", "%s failed: %s" % [op_name, result.get("error", "?")])
+			logger.warn("mesh_ops", "%s failed: %s" % [op_name, err])
+		_op_hint("%s: %s" % [OP_ACTION_NAMES.get(op_name, op_name), err.replace(OP_ACTION_NAMES.get(op_name, op_name) + ": ", "")])
 		return
 
 	cmd.capture_after()

@@ -2,13 +2,20 @@
 ##
 ## The plugin used to draw and own a full grid of its own (unit, subdivisions,
 ## elevation, a viewport line mesh). That is gone: the editor already has a 3D
-## grid, so MeshBuilder now only SNAPS to it. The step is the engine's own
-## transform snap step when the editor exposes it, otherwise the grid cell
-## itself (1 unit = 1 m).
+## grid, so MeshBuilder now only SNAPS to it — and it snaps exactly the way the
+## editor itself does, on two engine-owned values:
+## - the snap SWITCH is the Spatial Editor's own "Use Snap" toggle (Y), pushed
+##   into `enabled` by the plugin (the plugin has no Snap button of its own);
+## - the snap STEP is the engine's translate snap value, read from the
+##   editor's project metadata ("3d_editor"/"snap_translate_value" — the same
+##   key the engine restores from, see node_3d_editor_plugin.cpp).
 ##
 ## Application points (wired by the plugin/editor layer):
-## - Element MOVE drags: the drag DELTA snaps per-component in WORLD space
-##   (incremental/relative mode — preserves intra-selection offsets).
+## - Element MOVE drags: absolute world-grid snapping anchored on a VERTEX of
+##   the dragged selection (MBElementEditor._grid_snap_anchor), not on the
+##   selection's centre — a centroid is off the ticks even when every corner
+##   is on one. Intra-selection offsets are preserved: the whole selection
+##   translates rigidly by the delta that puts that vertex on the line.
 ## - EXTRUDE gestures: the cap distance along the extrude normal snaps.
 ## - ROTATE drags: the delivered rotation angle snaps to `rotate_step_deg`.
 ## - SCALE and INSET drags: intentionally unsnapped (ProBuilder parity).
@@ -24,11 +31,16 @@ const DEFAULT_STEP := 1.0
 ## Any snapping parameter changed.
 signal changed
 
+## Shift while dragging shrinks the step — the engine's own fine-snap modifier
+## (Node3DEditor::get_translate_snap divides by 10 under Shift).
+const FINE_FACTOR := 0.1
+
 ## World-space origin of the grid plane (the editor grid sits at y = 0; used as
 ## the drawing plane when shape creation has no surface under the cursor).
 var origin: Vector3 = Vector3.ZERO
 
-## Whether MeshBuilder snapping applies to element drags and creation.
+## Whether MeshBuilder snapping applies to element drags and creation. Driven
+## by the editor's own "Use Snap" toggle — there is no separate plugin switch.
 var enabled: bool = true:
 	set(v):
 		if enabled == v:
@@ -45,40 +57,38 @@ var rotate_step_deg: float = 15.0:
 		rotate_step_deg = cv
 		changed.emit()
 
-## The engine's translate snap step, pushed in by the plugin (0 = unknown).
-## Godot keeps it in the Snap Settings dialog, which the tool bridge locates.
-var engine_step: float = 0.0
-
-var _step_cache: float = 0.0
-
-## The effective snap step in meters: the editor's own snap step, otherwise the
-## grid cell.
+## The effective snap step in meters — the editor's translate snap value,
+## read live on every call so a change in the Snap Settings dialog is live on
+## the next drag without any plugin-side bookkeeping.
 func step() -> float:
-	if engine_step > 0.0001:
-		return engine_step
-	if _step_cache <= 0.0001:
-		_step_cache = _editor_snap_step()
-	return _step_cache
+	return _editor_snap_step()
 
-## Lets the plugin feed the live editor value (it moves during a session).
-func set_engine_step(v: float) -> void:
-	if is_equal_approx(engine_step, v):
-		return
-	engine_step = v
-	changed.emit()
+## Step for an interactive drag: `fine` (Shift held) divides it by 10, exactly
+## like the editor's own snapping — so a 1 m grid can be nudged in 10 cm steps
+## without touching Snap Settings.
+func drag_step(fine: bool) -> float:
+	var s := step()
+	return s * FINE_FACTOR if fine else s
 
+## The editor's own translate snap step: project metadata
+## "3d_editor"/"snap_translate_value", the very key the engine restores its
+## Snap Settings from (default 1 m). Falls back to the viewport grid cell, then
+## to 1 m.
 static func _editor_snap_step() -> float:
 	if not Engine.is_editor_hint():
 		return DEFAULT_STEP
-	var es := EditorInterface.get_editor_settings() if Engine.has_singleton("EditorInterface") else null
+	var es: EditorSettings = null
+	if Engine.has_singleton("EditorInterface"):
+		es = EditorInterface.get_editor_settings()
 	if es == null:
 		return DEFAULT_STEP
-	for key in ["editors/3d/snap_translate", "editors/3d/grid_snap_translate",
-			"editors/3d/transform_gizmo/snap_translate", "editors/3d/snap_translate_step"]:
-		if es.has_setting(key):
-			var v: float = float(es.get_setting(key))
-			if v > 0.0001:
-				return v
+	var v: float = float(es.get_project_metadata("3d_editor", "snap_translate_value", DEFAULT_STEP))
+	if v > 0.0001:
+		return v
+	if es.has_setting("editors/3d/grid_size"):
+		var g: float = float(es.get_setting("editors/3d/grid_size"))
+		if g > 0.0001:
+			return g
 	return DEFAULT_STEP
 
 ## Nearest multiple of step, or `v` unchanged when snapping is off.
@@ -97,6 +107,12 @@ static func snap_val_exact(v: float, p_step: float) -> float:
 func snap_point(p: Vector3) -> Vector3:
 	if not enabled:
 		return p
+	var s := step()
+	return Vector3(snap_val_exact(p.x, s), snap_val_exact(p.y, s), snap_val_exact(p.z, s))
+
+## Snaps a world-space position onto the grid, ignoring the on/off switch:
+## explicit commands (Snap Selection To Grid) ask for it by definition.
+func snap_point_always(p: Vector3) -> Vector3:
 	var s := step()
 	return Vector3(snap_val_exact(p.x, s), snap_val_exact(p.y, s), snap_val_exact(p.z, s))
 

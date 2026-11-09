@@ -24,9 +24,6 @@ extends VBoxContainer
 # Signals
 # ==============================================================================
 
-## Emitted when the user toggles snapping (the editor grid step).
-signal snap_toggled(enabled: bool)
-
 ## Emitted when the user clicks a mode button.
 signal mode_button_pressed(mode: MBEditor.SelectMode)
 
@@ -74,7 +71,6 @@ const ICON_DIR := "res://addons/meshbuilder/icons/"
 
 var _btn_mirror_model: Button = null
 var _btn_mirror_apply: Button = null
-var _btn_snap: Button
 var _btn_vertex_snap: Button
 var _btn_proportional: Button
 var _spin_prop_radius: SpinBox
@@ -144,18 +140,6 @@ func _build_ui() -> void:
 	_btn_space.pressed.connect(_on_space_button_pressed)
 
 
-
-	_btn_snap = Button.new()
-	_btn_snap.name = "SnapToggle"
-	_btn_snap.icon = _load_icon("icon_snap.svg")
-	if _btn_snap.icon == null:
-		_btn_snap.text = "Snap"
-	_btn_snap.toggle_mode = true
-	_btn_snap.button_pressed = true
-	_btn_snap.flat = true
-	_btn_snap.focus_mode = Control.FOCUS_NONE
-	_btn_snap.tooltip_text = "Snapping to the editor grid step (Y). Alt in the knife turns the magnet off."
-	_btn_snap.toggled.connect(func(on: bool): snap_toggled.emit(on))
 
 	_btn_vertex_snap = Button.new()
 	_btn_vertex_snap.name = "VertexSnapToggle"
@@ -375,9 +359,9 @@ func _update_row_layout() -> void:
 		],
 		[_op_buttons["smooth_auto"], _op_buttons["flat_shading"], _op_buttons["mark_sharp"]],
 	])
-	# Row 2: snapping / grid / display in front, then the mesh operations.
+	# Row 2: vertex snapping / display in front, then the mesh operations.
 	_add_row([
-		[_btn_snap, _btn_vertex_snap, _btn_proportional, _spin_prop_radius],
+		[_btn_vertex_snap, _btn_proportional, _spin_prop_radius],
 		[_btn_obj_lit, _btn_obj_shadow, _btn_xray],
 		[
 			_op_buttons["extrude_faces"], _op_buttons["inset_faces"], _op_buttons["bevel_edges"],
@@ -684,7 +668,9 @@ func sync_object_state(lit_state: int, shadow_state: int, enabled: bool) -> void
 		_btn_obj_shadow.disabled = not enabled
 		_btn_obj_shadow.set_pressed_no_signal(shadow_state == 1)
 	if _btn_xray != null:
-		_btn_xray.disabled = not enabled
+		# A pressed X-Ray stays clickable with nothing selected: the mode lives
+		# on the mesh and must be switchable off without re-selecting it.
+		_btn_xray.disabled = not enabled and not _btn_xray.button_pressed
 
 ## Mirrors the X-Ray mode onto its toggle WITHOUT emitting.
 func set_xray_active(on: bool) -> void:
@@ -738,10 +724,3 @@ func set_editing_active(active: bool) -> void:
 
 func set_overlay_pinned(pinned: bool) -> void:
 	_btn_overlay.set_pressed_no_signal(pinned)
-
-## Reflects the snapping state (changed by the Y shortcut, the toolbar button or
-## the plugin) without re-emitting.
-func sync_snap(enabled: bool) -> void:
-	if _btn_snap == null or not is_instance_valid(_btn_snap):
-		return
-	_btn_snap.set_pressed_no_signal(enabled)

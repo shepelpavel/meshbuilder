@@ -226,6 +226,12 @@ var _drag_union_override: PackedInt32Array = PackedInt32Array()
 ## Precomputed union of all vertex position indices moved by the current drag.
 ## Computed once at drag begin so per-motion deliveries never re-evaluate it.
 var _drag_union: PackedInt32Array = PackedInt32Array()
+## Disjoint parts of the drag union (connected components of the SELECTED
+## elements), built once per drag for the SCALE tool: [{"indices":
+## PackedInt32Array, "center": Vector3}]. Two or more parts make the scale
+## gesture scale each part about its own centre.
+var _drag_parts: Array = []
+var _drag_parts_ready: bool = false
 ## Full-mesh snapshot taken BEFORE a gesture's begin-op (extrude/inset).
 ## Non-null makes commit/cancel swap whole-mesh snapshots instead of
 ## per-position payloads (topology changed, indexes don't correspond).
@@ -1035,6 +1041,8 @@ func _begin_drag(node: MBMesh, ids: PackedInt32Array, shift: bool) -> void:
 	_drag_latest_id = -1
 	_drag_union_override = PackedInt32Array()
 	_drag_union = PackedInt32Array()
+	_drag_parts = []
+	_drag_parts_ready = false
 	_drag_inset_bases = []
 	_drag_ring_bases = []
 	_last_inset_amount = 0.0
@@ -1507,6 +1515,12 @@ func _apply_drag(node: MBMesh, mesh_data: MBMeshData, ids: PackedInt32Array) -> 
 			_drag_union = union
 	if union.is_empty():
 		return false
+	# Scale over SEVERAL disjoint parts moves the parts, it does not deform
+	# them: split the union into connected parts once per drag.
+	if not _drag_parts_ready and editor != null and editor.tool_mode == MBEditor.ToolMode.SCALE:
+		var part_ids: PackedInt32Array = ids if not ids.is_empty() else _drag_ids
+		_drag_parts = _build_drag_parts(mesh_data, part_ids, union)
+		_drag_parts_ready = true
 
 	# rel = latest target * start^-1. The engine composes the same motion into
 	# every selected subgizmo's transform, so any id's rel is the gesture's
@@ -1657,9 +1671,12 @@ func _apply_drag(node: MBMesh, mesh_data: MBMeshData, ids: PackedInt32Array) -> 
 					if not snapped_basis.is_equal_approx(rel.basis) and _drag_start_xf.has(_drag_latest_id):
 						var center := _rotation_center(rel, _drag_start_xf[_drag_latest_id].origin)
 						applied_rel = Transform3D(snapped_basis, center - snapped_basis * center)
-				for idx in union:
-					if idx >= 0 and idx < pos_count:
-						new_positions[idx] = applied_rel * _drag_original_positions[idx]
+				if _scales_disjoint_parts():
+					_scale_parts_about_centers(new_positions, pos_count, applied_rel)
+				else:
+					for idx in union:
+						if idx >= 0 and idx < pos_count:
+							new_positions[idx] = applied_rel * _drag_original_positions[idx]
 				_emit_drag_update(true, applied_rel.origin, _rel_rotation_deg(applied_rel), applied_rel.basis.get_scale())
 				if proportional_enabled and proportional_radius > 0.001 and _drag_start_xf.has(_drag_latest_id):
 					var pivot_pos: Vector3 = _drag_start_xf[_drag_latest_id].origin
@@ -1969,78 +1986,247 @@ static func snap_free_delta(sources: PackedVector3Array, candidates: PackedVecto
 				result["caught"] = true
 				result["world"] = t
 	return result
+## True while Shift is held during a drag: the snap step shrinks 10x (the
+## editor's own fine-snap modifier). In FACE/EDGE mode Shift+Move is the extrude
+## gesture, so there the fine step applies once the drag has already started
+## without Shift — press Shift mid-drag.
+var test_shift_fine: bool = false
+
+func _fine_snap_active() -> bool:
+	return test_shift_fine or Input.is_key_pressed(KEY_SHIFT)
+
+static func _snap_point_step(p: Vector3, step: float) -> Vector3:
+	return Vector3(MBGrid.snap_val_exact(p.x, step),
+		MBGrid.snap_val_exact(p.y, step), MBGrid.snap_val_exact(p.z, step))
+
 ## Snaps element translation to absolute world grid lines along active axes.
-## Even if an element starts with an off-grid position (fractional dimensions or
-## centered geometry), dragging it snaps the landing position directly onto the grid ticks.
+## The reference point is a VERTEX of the dragged selection, never its centre:
+## a centroid sits between the grid lines even when every corner is on one (a
+## 2 m face at 1 m step has its centre off the ticks), so snapping the centre
+## left the geometry off the grid. `_grid_snap_anchor` picks the dragged
+## vertex whose landing stays closest to the raw drag — the corner the user is
+## aiming at is the one that catches the line. Shift shrinks the step 10x.
 func _snap_grid_move_motion(node: MBMesh, motion: Vector3) -> Vector3:
 	if grid == null or not grid.enabled or node == null:
 		return motion
+	var step: float = grid.drag_step(_fine_snap_active())
+	if step <= 0.0001:
+		return motion
 	var xf := node.global_transform if node.is_inside_tree() else node.transform
 	if not _drag_start_xf.has(_drag_latest_id):
-		return grid.snap_local_delta(xf.basis, motion)
+		var world_delta := xf.basis * motion
+		return xf.basis.inverse() * _snap_point_step(world_delta, step)
 
 	var basis := xf.basis
 	var world_motion := basis * motion
-	var start_pivot_world: Vector3 = xf * _drag_start_xf[_drag_latest_id].origin
+	var pivot_world: Vector3 = xf * _drag_start_xf[_drag_latest_id].origin
 
 	# If in ELEMENT space: snap along the element's local gizmo axes (face normal, tangent, bitangent)
 	if editor != null and editor.orientation_space == MBEditor.OrientationSpace.ELEMENT:
 		var elem_b := element_basis(node.mb_mesh_data, node, _drag_latest_id)
 		var local_motion: Vector3 = elem_b.inverse() * motion
-		var d_x: float = local_motion.x
-		var d_y: float = local_motion.y
-		var d_z: float = local_motion.z
-		var world_x := (basis * (elem_b * Vector3.RIGHT)).normalized()
-		var world_y := (basis * (elem_b * Vector3.UP)).normalized()
-		var world_z := (basis * (elem_b * Vector3.BACK)).normalized()
+		var world_axes := PackedVector3Array([
+			(basis * (elem_b * Vector3.RIGHT)).normalized(),
+			(basis * (elem_b * Vector3.UP)).normalized(),
+			(basis * (elem_b * Vector3.BACK)).normalized(),
+		])
+		var moves: Array = [local_motion.x, local_motion.y, local_motion.z]
+		var anchor := _grid_snap_anchor(node, pivot_world, world_axes, moves, step)
 
 		var applied_local := Vector3.ZERO
-		if absf(d_x) > 0.0001:
-			var target_pt := start_pivot_world + world_x * d_x
-			var snapped_pt := grid.snap_point(target_pt)
-			applied_local.x = (snapped_pt - start_pivot_world).dot(world_x)
-
-		if absf(d_y) > 0.0001:
-			var target_pt := start_pivot_world + world_y * d_y
-			var snapped_pt := grid.snap_point(target_pt)
-			applied_local.y = (snapped_pt - start_pivot_world).dot(world_y)
-
-		if absf(d_z) > 0.0001:
-			var target_pt := start_pivot_world + world_z * d_z
-			var snapped_pt := grid.snap_point(target_pt)
-			applied_local.z = (snapped_pt - start_pivot_world).dot(world_z)
+		for i in range(3):
+			var d: float = moves[i]
+			if absf(d) < 0.0001:
+				continue
+			var world_axis: Vector3 = world_axes[i]
+			var snapped_pt := _snap_point_step(anchor + world_axis * d, step)
+			applied_local[i] = (snapped_pt - anchor).dot(world_axis)
 
 		return elem_b * applied_local
 
 	elif editor != null and editor.orientation_space == MBEditor.OrientationSpace.OBJECT:
-		var applied_local := Vector3.ZERO
+		var world_axes := PackedVector3Array()
+		var snap_axes := PackedVector3Array()
+		var snap_moves: Array = []
 		for i in range(3):
 			var local_axis := Vector3.ZERO
 			local_axis[i] = 1.0
 			var world_axis := (basis * local_axis).normalized()
+			world_axes.append(world_axis)
+			# Non-cardinal axes snap the DELTA (there is no world grid line to
+			# land on), so only cardinal ones may steer the anchor choice.
+			if MBGrid.is_cardinal(world_axis):
+				snap_axes.append(world_axis)
+				snap_moves.append(motion[i])
+		var anchor := _grid_snap_anchor(node, pivot_world, snap_axes, snap_moves, step)
+		var applied_local := Vector3.ZERO
+		for i in range(3):
 			var val: float = motion[i]
-			if absf(val) > 0.0001:
-				if MBGrid.is_cardinal(world_axis):
-					var target_pt := start_pivot_world + world_axis * val
-					var snapped_pt := grid.snap_point(target_pt)
-					applied_local[i] = (snapped_pt - start_pivot_world).dot(world_axis)
-				else:
-					applied_local[i] = grid.snap_val(val)
+			if absf(val) < 0.0001:
+				continue
+			if MBGrid.is_cardinal(world_axes[i]):
+				var snapped_pt := _snap_point_step(anchor + world_axes[i] * val, step)
+				applied_local[i] = (snapped_pt - anchor).dot(world_axes[i])
+			else:
+				applied_local[i] = MBGrid.snap_val_exact(val, step)
 		return applied_local
 
 	# Default WORLD space: absolute world grid snapping
-	var target_pivot_world := start_pivot_world + world_motion
-	var snapped_target := grid.snap_point(target_pivot_world)
+	var world_axes := PackedVector3Array([Vector3.RIGHT, Vector3.UP, Vector3.BACK])
+	var moves: Array = [world_motion.x, world_motion.y, world_motion.z]
+	var anchor := _grid_snap_anchor(node, pivot_world, world_axes, moves, step)
+	var snapped_target := _snap_point_step(anchor + world_motion, step)
 
 	var applied_world := Vector3.ZERO
-	if absf(world_motion.x) > 0.0001:
-		applied_world.x = snapped_target.x - start_pivot_world.x
-	if absf(world_motion.y) > 0.0001:
-		applied_world.y = snapped_target.y - start_pivot_world.y
-	if absf(world_motion.z) > 0.0001:
-		applied_world.z = snapped_target.z - start_pivot_world.z
+	for i in range(3):
+		if absf(world_motion[i]) > 0.0001:
+			applied_world[i] = snapped_target[i] - anchor[i]
 
 	return basis.inverse() * applied_world
+
+## The dragged VERTEX the grid snapping aligns for `axes` (world directions)
+## and the delivered distances along them: the candidate whose snapped landing
+## deviates least from the raw drag wins, so the selection keeps its internal
+## offsets and some corner ends up exactly on the grid. `pivot_world` is the
+## fallback for a drag that carries no vertex of its own.
+func _grid_snap_anchor(node: MBMesh, pivot_world: Vector3,
+		axes: PackedVector3Array, moves: Array, step: float) -> Vector3:
+	if axes.is_empty():
+		return pivot_world
+	var points := _get_source_vertices(node)
+	if points.is_empty():
+		return pivot_world
+	if step <= 0.0001:
+		return pivot_world
+
+	var raw := Vector3.ZERO
+	for i in range(axes.size()):
+		raw += axes[i] * float(moves[i])
+
+	var best := pivot_world
+	var best_err := INF
+	for p in points:
+		var applied := Vector3.ZERO
+		for i in range(axes.size()):
+			var d: float = moves[i]
+			if absf(d) < 0.0001:
+				continue
+			var target: Vector3 = p + axes[i] * d
+			var snapped := Vector3(
+				MBGrid.snap_val_exact(target.x, step),
+				MBGrid.snap_val_exact(target.y, step),
+				MBGrid.snap_val_exact(target.z, step))
+			applied += axes[i] * (snapped - p).dot(axes[i])
+		var err := (applied - raw).length_squared()
+		if err < best_err - 0.000001:
+			best_err = err
+			best = p
+			if best_err <= 0.000001:
+				break  # a vertex lands exactly on the grid — nothing beats that
+	return best
+# ==============================================================================
+# Scale over disjoint parts
+# ==============================================================================
+# Selecting two or more SEPARATE pieces and scaling must scale each piece ABOUT
+# ITS OWN CENTRE (Blender's "individual origins"): every part grows/shrinks in
+# place, parts do not fly apart from a shared pivot. One connected part keeps
+# the plain behaviour — the engine's scale about the selection centre, which
+# for a single part IS its own centre.
+
+## True when the current drag scales several disjoint parts of the selection.
+func _scales_disjoint_parts() -> bool:
+	return _drag_gesture == DragGesture.NORMAL and _drag_parts.size() > 1
+
+## Scales every part about ITS OWN centre: `xf.basis` is the engine's scale (in
+## node space, oriented by the gizmo axes), the part's centre stays put and the
+## translation part of `xf` — which only compensates the shared pivot — is
+## dropped, otherwise the parts would also drift away from each other.
+func _scale_parts_about_centers(new_positions: PackedVector3Array, pos_count: int, xf: Transform3D) -> void:
+	for part in _drag_parts:
+		var idxs: PackedInt32Array = part["indices"]
+		var center: Vector3 = part["center"]
+		for idx in idxs:
+			if idx >= 0 and idx < pos_count:
+				new_positions[idx] = center + xf.basis * (_drag_original_positions[idx] - center)
+
+## Splits the selection into connected parts: selected ELEMENTS that share a
+## welded corner/edge belong to the same part. Only edges of the SELECTED
+## elements link them — the top and bottom face of a cube are two parts even
+## though a side face (not selected) has an edge joining their corners. Centres
+## come from the drag-start snapshot, so repeated deliveries stay idempotent.
+func _build_drag_parts(mesh_data: MBMeshData, ids: PackedInt32Array, union: PackedInt32Array) -> Array:
+	var parts: Array = []
+	if mesh_data == null or union.is_empty():
+		return parts
+	var lookup := mesh_data.get_shared_vertex_lookup()
+	var group_of: Dictionary = {}
+	var parent: Dictionary = {}
+	for idx in union:
+		var g: int = int(lookup.get(idx, -1))
+		if g < 0:
+			g = -1 - idx  # welded-info missing: the vertex is a part of its own
+		group_of[idx] = g
+		if not parent.has(g):
+			parent[g] = g
+
+	var mode := editor.select_mode if editor != null else MBEditor.SelectMode.FACE
+	var links: Array = []  # welded-edge candidates as Vector2i(position, position)
+	match mode:
+		MBEditor.SelectMode.EDGE:
+			var common := mesh_data.get_common_edges()
+			for id in ids:
+				if id >= 0 and id < common.size():
+					links.append(Vector2i(common[id].a, common[id].b))
+		MBEditor.SelectMode.VERTEX:
+			var pairs := mesh_data.get_common_edge_indices()
+			var i := 0
+			while i + 1 < pairs.size():
+				links.append(Vector2i(pairs[i], pairs[i + 1]))
+				i += 2
+		_:
+			for id in ids:
+				if id < 0 or id >= mesh_data.faces.size() or mesh_data.faces[id] == null:
+					continue
+				for e in mesh_data.faces[id].get_edges():
+					links.append(Vector2i(e.a, e.b))
+
+	for link: Vector2i in links:
+		var ga: int = int(lookup.get(link.x, -1))
+		var gb: int = int(lookup.get(link.y, -1))
+		if ga < 0 or gb < 0 or not parent.has(ga) or not parent.has(gb):
+			continue
+		var ra := _uf_find(parent, ga)
+		var rb := _uf_find(parent, gb)
+		if ra != rb:
+			parent[rb] = ra
+
+	var groups: Dictionary = {}
+	for idx in union:
+		var root := _uf_find(parent, int(group_of[idx]))
+		if not groups.has(root):
+			groups[root] = PackedInt32Array()
+		groups[root].append(idx)
+	for root in groups:
+		var idxs: PackedInt32Array = groups[root]
+		var acc := Vector3.ZERO
+		var count := 0
+		for idx in idxs:
+			if idx >= 0 and idx < _drag_original_positions.size():
+				acc += _drag_original_positions[idx]
+				count += 1
+		parts.append({ "indices": idxs, "center": acc / float(count) if count > 0 else Vector3.ZERO })
+	return parts
+
+static func _uf_find(parent: Dictionary, x: int) -> int:
+	var root := x
+	while int(parent.get(root, root)) != root:
+		root = int(parent[root])
+	while int(parent.get(x, x)) != root:
+		var next_x: int = int(parent[x])
+		parent[x] = root
+		x = next_x
+	return root
+
 # ==============================================================================
 # Center scale handle (uniform scale + inset, ProBuilder-style)
 # ==============================================================================
@@ -2422,6 +2608,8 @@ func _reset_drag_state() -> void:
 	_drag_gesture = DragGesture.NORMAL
 	_drag_union_override = PackedInt32Array()
 	_drag_union = PackedInt32Array()
+	_drag_parts = []
+	_drag_parts_ready = false
 	_drag_before_op = null
 	_drag_inset_bases = []
 	_drag_ring_bases = []

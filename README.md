@@ -41,7 +41,7 @@ spread and an editable colour palette stored in the editor settings. Colours go 
 
 **Extras.** CSG booleans (union / subtract / intersect), `MeshBuilderize` to turn a `MeshInstance3D`
 or a CSG node into an editable mesh, a live mirror modifier with an Apply toggle that bakes it into real
-faces (and bakes it back), snapping to the editor's grid step.
+faces (and bakes it back), snapping that follows the editor's own **Use Snap** toggle and grid step.
 
 ### Requirements
 
@@ -102,7 +102,7 @@ bridge, connect, tunnel, fill hole, detach, delete. Всё с превью и п
 
 **Прочее.** CSG-булевы (union / subtract / intersect), `MeshBuilderize` — превратить `MeshInstance3D`
 или CSG в редактируемый меш, живое зеркало с тумблером Apply (запекает отражение в грани и обратно),
-привязка по шагу сетки редактора.
+привязка — по собственной кнопке редактора **Use Snap** и шагу из его Snap Settings.
 
 ### Требования
 

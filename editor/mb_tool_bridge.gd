@@ -14,7 +14,10 @@
 ## - drives the engine's "Use Local Space" toggle (T) so the transform gizmo
 ##   orientation follows MBEditor.orientation_space — see apply_orientation_space,
 ## - listens to the engine buttons' `pressed` signals to keep the plugin's
-##   own tool state in sync when the user presses W/E/R.
+##   own tool state in sync when the user presses W/E/R,
+## - listens to the engine's "Use Snap" toggle (Y) so MeshBuilder's grid
+##   snapping follows the editor's own snap state — there is no private
+##   Snap button and no second snap step in the plugin.
 ##
 ## When not editing, every button is restored so the editor behaves stock.
 ##
@@ -73,20 +76,16 @@ var _local_coords_btn: BaseButton = null
 ## Local-coords toggle state to restore when editing ends.
 var _local_coords_before_editing: bool = false
 
-## The engine's "Use Snap" toggle (optional). While EDITING it is held OFF
-## and disabled: MeshBuilder's own grid snapping is then the ONLY snapping
-## layer on element drags — the engine would otherwise quantize its subgizmo
-## drag deliveries at the project metadata step (default 1m) before our
-## layer even sees them, producing nested quantization.
+## The engine's "Use Snap" toggle (Spatial Editor toolbar, Y) — the ONE snap
+## switch for the plugin too: its pressed state drives MBGrid.enabled through
+## `on_snap_state_changed`, and the step is the engine's own translate snap
+## value (MBGrid reads it straight from the editor's project metadata). The
+## button stays visible and user-operable while editing: the plugin neither
+## forces it off nor disables it.
 var _use_snap_btn: BaseButton = null
-var _use_snap_before_editing: bool = false
 
-## The engine's 3D grid renders on editor gizmo layer 25; the View > View
-## Grid menu only toggles this cull bit on the viewport camera
-
-## The Snap Settings dialog's spinners (Translate / Rotate / Scale), found by
-## structure. Read-only now: MeshBuilder snaps to the ENGINE's step.
-var _snap_spins: Dictionary = {}
+## Called with the new state whenever the engine's Use Snap toggle flips.
+var on_snap_state_changed: Callable = Callable()
 
 ## True while apply_orientation_space is pressing the toggle; lets the
 ## `toggled` listener ignore our own programmatic flips.
@@ -120,6 +119,10 @@ func setup(n3d: Node) -> bool:
 	if _use_snap_btn == null:
 		_buttons.erase(PATH_USE_SNAP)
 
+	# The engine's snap toggle is the plugin's snap switch: mirror it live.
+	if _use_snap_btn != null and not _use_snap_btn.toggled.is_connected(_on_use_snap_toggled):
+		_use_snap_btn.toggled.connect(_on_use_snap_toggled)
+
 	# Sync listeners: engine tool changed via W/E/R or its own toolbar.
 	for path: String in [PATH_MOVE, PATH_ROTATE, PATH_SCALE]:
 		if _buttons.has(path):
@@ -138,7 +141,10 @@ func setup(n3d: Node) -> bool:
 		else:
 			logger.warn("tools", "Engine local-coords toggle NOT found — gizmo space will stay world")
 			_dump_button_candidates(candidates)
-	_find_snap_dialog()
+		if _use_snap_btn != null:
+			logger.info("tools", "Engine Use Snap toggle found — grid snapping follows it")
+		else:
+			logger.warn("tools", "Engine Use Snap toggle NOT found — grid snapping stays off")
 	return _all_tools_found()
 
 ## One line per shortcut-less/toggle candidate under the Node3DEditor — the
@@ -170,6 +176,11 @@ func teardown() -> void:
 		_local_coords_btn.set_pressed_no_signal(_local_coords_before_editing)
 		_local_coords_btn.disabled = false
 	_local_coords_btn = null
+	if _use_snap_btn != null and is_instance_valid(_use_snap_btn):
+		if _use_snap_btn.toggled.is_connected(_on_use_snap_toggled):
+			_use_snap_btn.toggled.disconnect(_on_use_snap_toggled)
+		_use_snap_btn.disabled = false
+	_use_snap_btn = null
 	for path: String in _buttons:
 		var btn: BaseButton = _buttons[path]
 		if is_instance_valid(btn):
@@ -263,19 +274,6 @@ func set_editing_active(active: bool) -> void:
 		else:
 			_local_coords_btn.disabled = false
 			_press_local_coords(_local_coords_before_editing)
-	# Hold the engine's own Use Snap OFF while editing: our grid snapping is
-	# applied in MBElementEditor on the delivered delta, and any engine-side
-	# quantization of the delivery itself would fight it (it lives upstream).
-	if _use_snap_btn != null and is_instance_valid(_use_snap_btn):
-		if active:
-			_use_snap_before_editing = _use_snap_btn.button_pressed
-			_use_snap_btn.disabled = true
-			if _use_snap_btn.button_pressed:
-				_use_snap_btn.button_pressed = false
-		else:
-			_use_snap_btn.disabled = false
-			if _use_snap_btn.button_pressed != _use_snap_before_editing:
-				_use_snap_btn.button_pressed = _use_snap_before_editing
 
 ## Whether the engine's local-coords toggle must be ON for `space`
 ## (a MBEditor.OrientationSpace value).
@@ -400,92 +398,17 @@ func _on_engine_tool_pressed(path: String) -> void:
 			on_tool_selected.call(MBEditor.ToolMode.SCALE)
 
 # ==============================================================================
-# Engine grid visibility (camera cull layer 25, same as View > View Grid)
+# Engine snap toggle (the plugin's grid snapping follows it)
 # ==============================================================================
 
+## The engine's "Use Snap" state (Spatial Editor toolbar, Y). FALSE when the
+## button was not found: the plugin then snaps only where a command asks for
+## it explicitly (Snap Selection To Grid).
+func engine_snap_enabled() -> bool:
+	if _use_snap_btn == null or not is_instance_valid(_use_snap_btn):
+		return false
+	return _use_snap_btn.button_pressed
 
-## Hides/restores the engine's stock grid by flipping the grid cull layer on
-## the viewport camera — exactly what the View > View Grid menu entry does
-## (node_3d_editor_viewport.cpp case VIEW_GRID), but reachable from script.
-## NOTE: the per-layer setter CLI (set_cull_mask_value) refuses layers > 20
-## ("Render layer number must be between 1 and 20") — the 25-32 editor
-func find_editor_menus(search_root: Node) -> void:
-	_find_snap_dialog(search_root)
-
-## The editor's own translate snap step (Snap Settings dialog), 0 when the
-## dialog has not been found.
-func engine_snap_translate() -> float:
-	var spin: EditorSpinSlider = _snap_spins.get("translate")
-	if spin != null and is_instance_valid(spin):
-		return float(spin.value)
-	return 0.0
-
-## Finds the Snap Settings dialog's (translate, rotate, scale) spinners.
-## STRUCTURAL match: a ConfirmationDialog with exactly three EditorSpinSlider
-## children, in dialog order (translate, rotate, scale) — the spinners carry
-## no label text on 4.7.2, and translated titles are unreliable.
-func _find_snap_dialog(search_root: Node = null) -> void:
-	_snap_spins.clear()
-	var root: Node = search_root if search_root != null else _n3d
-	if root == null or not is_instance_valid(root):
-		return
-	var dialogs: Array[ConfirmationDialog] = []
-	_collect_dialogs(root, dialogs)
-	var found: ConfirmationDialog = null
-	for dlg in dialogs:
-		var spins: Array[EditorSpinSlider] = []
-		_collect_spins(dlg, spins)
-		if spins.size() == 3:
-			found = dlg
-			_snap_spins["translate"] = spins[0]
-			_snap_spins["rotate"] = spins[1]
-			_snap_spins["scale"] = spins[2]
-			if dlg.title.containsn("Snap"):
-				# A dialog titled Snap-something wins outright.
-				if logger != null:
-					logger.info("tools", "Snap dialog found: '%s'" % dlg.title)
-				return
-	if _snap_spins.is_empty():
-		if logger != null:
-			logger.warn("tools", "Snap dialog spinners not found — object-mode grid sync disabled")
-	elif logger != null:
-		logger.info("tools", "Snap dialog found structurally (3 spinners, untitled Snap hint)")
-
-func _collect_dialogs(node: Node, out: Array[ConfirmationDialog]) -> void:
-	for child in node.get_children():
-		if child is ConfirmationDialog:
-			out.append(child)
-		_collect_dialogs(child, out)
-
-func _collect_spins(node: Node, out: Array[EditorSpinSlider]) -> void:
-	for child in node.get_children():
-		if child is EditorSpinSlider:
-			out.append(child)
-		_collect_spins(child, out)
-
-## The Snap Settings dialog lives under the Node3DEditor; emitting its
-## 'confirmed' signal runs the engine's own applier (spinner values → live
-## viewport snap parameters), without ever showing the dialog.
-func _confirm_snap_spinners() -> void:
-	if _snap_spins.is_empty():
-		return
-	for dlg in _snap_dialog_ancestors():
-		dlg.emit_signal("confirmed")
-		return
-
-func _snap_dialog_ancestors() -> Array:
-	# The ConfirmationDialog is the nearest ancestor chain start of a spin.
-	var out: Array = []
-	var node: Node = _snap_spins.get("translate")
-	if node != null:
-		var p := node.get_parent()
-		while p != null:
-			if p is ConfirmationDialog:
-				out.append(p)
-				return out
-			p = p.get_parent()
-	return out
-
-## While a MBMesh is selected in OBJECT mode the engine's transform snap
-## tracks our grid: values are written into the live snap dialog and
-## 'confirmed' (the engine's own applier), and the engine's Use Snap state
+func _on_use_snap_toggled(pressed: bool) -> void:
+	if on_snap_state_changed.is_valid():
+		on_snap_state_changed.call(pressed)

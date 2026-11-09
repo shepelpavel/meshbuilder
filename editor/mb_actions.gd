@@ -41,11 +41,10 @@ const ACTIONS: Dictionary = {
 	"tool_move":       { "label": "Tool: Move",             "keys": [[KEY_G, 0, 0, 0]] },
 	"tool_rotate":     { "label": "Tool: Rotate",           "keys": [[KEY_R, 0, 0, 0]] },
 	"tool_scale":      { "label": "Tool: Scale",            "keys": [[KEY_S, 0, 0, 0]] },
-	# Snapping.
-	"toggle_snap":     { "label": "Toggle Snapping",       "keys": [[KEY_Y, 0, 0, 0]] },
+	# Snapping (the on/off switch is the editor's own Spatial Editor "Use Snap").
 	"snap_selection":  { "label": "Snap Selection To Grid", "keys": [] },
 	# Selection actions
-	"select_all":          { "label": "Selection: Select All",         "keys": [] },
+	"select_all":          { "label": "Selection: Select All",         "keys": [[KEY_A, 0, 0, 0]] },
 	"invert_selection":    { "label": "Selection: Invert Selection",    "keys": [[KEY_I, 1, 0, 0]] },
 	"grow_selection":      { "label": "Selection: Grow Selection",      "keys": [[KEY_G, 0, 0, 1]] },
 	"shrink_selection":    { "label": "Selection: Shrink Selection",    "keys": [[KEY_G, 0, 1, 1]] },
